@@ -148,6 +148,35 @@ test("a pet whose shape is deleted falls back to the floor", async () => {
     assert.equal(host.floating.get(PET)?.position.y, FLOOR_TOP);
 });
 
+test("removing the shape Diny stands on starts the fall on the next tick, before the board is read again", async () => {
+    const host = fakeHost();
+    host.put({
+        drawdyElementId: "shelf",
+        type: "path",
+        x: 0,
+        y: 500,
+        width: 1600,
+        height: 100,
+    });
+    const emit = await start(host);
+    await advance(1200);
+    const standing = host.floating.get(PET)!.position;
+    host.remove("shelf");
+    host.clear();
+    await emit("subscription:scene:elements-removed", {
+        drawdyElements: [{ id: "shelf" }],
+        properties: [],
+    });
+    await advance(TICK_MS);
+    const [, image] = schemaNodes(host.floating.get(PET)!.schema);
+    assert.match(image.styles?.transform ?? "", /scale\(1, 1\.08\)/);
+    await advance(4 * TICK_MS);
+    const falling = host.floating.get(PET)!.position;
+    assert.equal(falling.x, standing.x);
+    assert.ok(falling.y > standing.y);
+    assert.ok(!host.types().includes("command:scene:query-rect"));
+});
+
 test("without the scene permission Diny keeps to the floor and reports no error", async () => {
     const errors = mock.method(console, "error", () => undefined);
     const host = fakeHost({ denied: ["command:scene"] });

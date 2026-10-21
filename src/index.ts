@@ -537,9 +537,19 @@ export const onEvent: DriverModule["onEvent"] = async (event) => {
                 return;
             }
             case "subscription:scene:elements-added":
-            case "subscription:scene:elements-updated":
-            case "subscription:scene:elements-removed": {
+            case "subscription:scene:elements-updated": {
                 if (live) scheduleRefresh();
+                return;
+            }
+            case "subscription:scene:elements-removed": {
+                if (!live) return;
+                // Forgetting removed shapes now lets Diny drop on the next tick instead of standing on air until the refresh.
+                const gone = new Set(
+                    event.body.drawdyElements.map((el) => el.id)
+                );
+                elements = elements.filter((el) => !gone.has(el.id));
+                rebuildWorld();
+                scheduleRefresh();
                 return;
             }
             case "subscription:scene:elements-replaced": {
