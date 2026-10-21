@@ -1,0 +1,557 @@
+import type {
+    DomElementSchema,
+    DriverCommandIssuer,
+    DriverModule,
+    ProtocolCommandError,
+    SubscribeableKey,
+    SubscribedDrawdyElement,
+} from "@drawdy/driver-protocol";
+import {
+    clickPet,
+    recallPet,
+    spawnPet,
+    stepPet,
+    PET_H,
+    PET_W,
+    type Frame,
+    type PetState,
+    type World,
+} from "./pet";
+import type { Point, ScreenMapping } from "./screen";
+import { ACTION_BUTTON_SVG, ALL_SPRITES, PET_SPRITES } from "./sprites";
+import { platformsFrom } from "./world";
+
+const LOG = "[mickyngub.diny-pet]";
+const BUTTON_RETRIES_MS = [800, 2000, 4000, 8000, 15000];
+const TICK_MS = 16;
+const EDIT_SETTLE_MS = 400;
+const MIN_PLATFORM_PX = 60;
+const FLOOR_GAP_PX = 16;
+const WARMUP_MS = 240;
+const WARMUP_POSITION: Point = { x: -10000, y: -10000 };
+const WARMUP_SIZE = 4;
+const SETTINGS_KEY = "settings";
+const ELEMENT_PROPERTIES: SubscribeableKey[] = [
+    "type",
+    "x",
+    "y",
+    "width",
+    "height",
+    "rotation",
+];
+const ORIGIN: Point = { x: 0, y: 0 };
+
+let issue: DriverCommandIssuer;
+let driverId: string;
+let seq = 0;
+
+const stamp = () => ({ driverId, requestId: String(seq++) });
+
+const unwrap = <V>(response: {
+    res: { error?: ProtocolCommandError; value?: V };
+}): V => {
+    const { error } = response.res;
+    if (error !== undefined) {
+        throw new Error(error.message ?? error.type);
+    }
+    return response.res.value as V;
+};
+
+type Live = {
+    pet: PetState;
+    tick: ReturnType<typeof setInterval> | null;
+    sent: string;
+    inFlight: boolean;
+    created: boolean;
+};
+
+let enabled = false;
+let generation = 0;
+let live: Live | null = null;
+let watching = false;
+let elements: readonly SubscribedDrawdyElement[] = [];
+let mapping: ScreenMapping = { cx: 0, cy: 0, sx: 0, sy: 0, zoom: 1 };
+let windowSize = { width: 0, height: 0 };
+let world: World = { platforms: [], floorY: 0, viewW: 0, viewH: 0, zoom: 1 };
+let editTimer: ReturnType<typeof setTimeout> | null = null;
+let refreshing = false;
+let refreshDirty = false;
+let following = false;
+let followZoom: number | null = null;
+
+const buttonId = (): string => `${driverId}:button`;
+
+const petId = (): string => `${driverId}:diny`;
+
+const rebuildWorld = (): void => {
+    world = {
+        platforms: platformsFrom(elements, mapping, MIN_PLATFORM_PX),
+        floorY: windowSize.height - FLOOR_GAP_PX,
+        viewW: windowSize.width,
+        viewH: windowSize.height,
+        zoom: mapping.zoom,
+    };
+};
+
+const readCamera = async (zoom?: number): Promise<ScreenMapping> => {
+    const z =
+        zoom ??
+        unwrap(await issue({ type: "command:camera:get-info", ...stamp() }))
+            .zoom;
+    const screen = unwrap(
+        await issue({
+            type: "command:camera:canvas-to-screen",
+            ...stamp(),
+            req: ORIGIN,
+        })
+    );
+    return { cx: ORIGIN.x, cy: ORIGIN.y, sx: screen.x, sy: screen.y, zoom: z };
+};
+
+const readElements = async (): Promise<readonly SubscribedDrawdyElement[]> => {
+    try {
+        const { rect } = unwrap(
+            await issue({
+                type: "command:camera:get-viewport-rect",
+                ...stamp(),
+            })
+        );
+        const { drawdyElements: hits } = unwrap(
+            await issue({
+                type: "command:scene:query-rect",
+                ...stamp(),
+                req: { rect, properties: ["type"] },
+            })
+        );
+        const ids = hits.filter((el) => el.type !== "frame").map((el) => el.id);
+        if (ids.length === 0) return [];
+        return unwrap(
+            await issue({
+                type: "command:scene:get-drawdy-elements",
+                ...stamp(),
+                req: { drawdyElementIds: ids, properties: ELEMENT_PROPERTIES },
+            })
+        ).drawdyElements;
+    } catch {
+        // Without the scene permission Diny keeps to the floor.
+        return [];
+    }
+};
+
+const refreshWorld = async (): Promise<void> => {
+    if (refreshing) {
+        refreshDirty = true;
+        return;
+    }
+    refreshing = true;
+    try {
+        do {
+            refreshDirty = false;
+            elements = await readElements();
+            mapping = await readCamera();
+        } while (refreshDirty);
+    } finally {
+        refreshing = false;
+    }
+    rebuildWorld();
+    if (live) live.pet = recallPet(live.pet, Date.now(), world, Math.random);
+};
+
+const refreshQuietly = (): void => {
+    void refreshWorld().catch(() => undefined);
+};
+
+const scheduleRefresh = (): void => {
+    if (editTimer !== null) clearTimeout(editTimer);
+    editTimer = setTimeout(() => {
+        editTimer = null;
+        refreshQuietly();
+    }, EDIT_SETTLE_MS);
+};
+
+const removeFloating = async (domId: string): Promise<void> => {
+    try {
+        unwrap(
+            await issue({
+                type: "command:dom:remove-floating-element",
+                ...stamp(),
+                req: { domId },
+            })
+        );
+    } catch (err) {
+        console.error(`${LOG} removing ${domId} failed`, err);
+    }
+};
+
+const spriteSchema = (url: string, size: number): DomElementSchema => ({
+    type: "box",
+    styles: {
+        width: [size, "px"],
+        height: [size, "px"],
+        pointerEvents: "none",
+    },
+    children: [
+        {
+            type: "image",
+            child: url,
+            styles: {
+                width: [size, "px"],
+                height: [size, "px"],
+                pointerEvents: "none",
+            },
+        },
+    ],
+});
+
+const warmUp = async (): Promise<void> => {
+    const ids = ALL_SPRITES.map((_, i) => `${driverId}:warm:${i}`);
+    await Promise.all(
+        ALL_SPRITES.map(async (url, i) =>
+            unwrap(
+                await issue({
+                    type: "command:dom:create-floating-element",
+                    ...stamp(),
+                    req: {
+                        domId: ids[i],
+                        position: WARMUP_POSITION,
+                        schema: spriteSchema(url, WARMUP_SIZE),
+                        asPopover: false,
+                    },
+                })
+            )
+        )
+    );
+    await new Promise<void>((resolve) => setTimeout(resolve, WARMUP_MS));
+    for (const id of ids) void removeFloating(id);
+};
+
+const round3 = (n: number): number => Math.round(n * 1000) / 1000;
+
+// Scaling about the bottom centre keeps the feet planted while Diny squashes or pops.
+const petTransform = (pet: PetState): string =>
+    `translateY(${PET_H / 2}px) scaleX(${pet.facing}) scale(${round3(pet.sx)}, ${round3(pet.sy)}) translateY(-${PET_H / 2}px)`;
+
+const petSchema = (frame: Frame, transform: string): DomElementSchema => ({
+    type: "box",
+    styles: {
+        width: [PET_W, "px"],
+        height: [PET_H, "px"],
+        overflow: "visible",
+        pointerEvents: "auto",
+        cursor: "pointer",
+    },
+    children: [
+        {
+            type: "image",
+            child: PET_SPRITES[frame],
+            styles: {
+                width: [PET_W, "px"],
+                height: [PET_H, "px"],
+                pointerEvents: "none",
+                transform,
+            },
+        },
+    ],
+});
+
+const sendPet = async (
+    active: Live,
+    position: Point,
+    schema: DomElementSchema
+): Promise<void> => {
+    const domId = petId();
+    try {
+        if (active.created) {
+            unwrap(
+                await issue({
+                    type: "command:dom:update-floating-element",
+                    ...stamp(),
+                    req: { domId, position, schema },
+                })
+            );
+        } else {
+            unwrap(
+                await issue({
+                    type: "command:dom:upsert-floating-element",
+                    ...stamp(),
+                    req: { domId, position, schema, asPopover: false },
+                })
+            );
+            active.created = true;
+        }
+    } catch (err) {
+        active.created = false;
+        throw err;
+    } finally {
+        if (live !== active) void removeFloating(domId);
+    }
+};
+
+const render = (active: Live): void => {
+    const { pet } = active;
+    const position = {
+        x: Math.round(pet.x - PET_W / 2),
+        y: Math.round(pet.y - PET_H),
+    };
+    const transform = petTransform(pet);
+    const key = `${position.x},${position.y},${pet.frame},${transform}`;
+    if (active.inFlight || key === active.sent) return;
+    active.inFlight = true;
+    active.sent = key;
+    void sendPet(active, position, petSchema(pet.frame, transform))
+        .catch(() => {
+            active.sent = "";
+        })
+        .finally(() => {
+            active.inFlight = false;
+        });
+};
+
+const frame = (active: Live): void => {
+    if (live !== active) return;
+    active.pet = stepPet(active.pet, Date.now(), world, Math.random);
+    render(active);
+};
+
+const followCamera = (zoom: number): void => {
+    followZoom = zoom;
+    if (following) return;
+    following = true;
+    void (async () => {
+        while (followZoom !== null) {
+            const next = followZoom;
+            followZoom = null;
+            mapping = await readCamera(next);
+            rebuildWorld();
+            if (live) frame(live);
+        }
+    })()
+        .catch(() => undefined)
+        .finally(() => {
+            following = false;
+        });
+};
+
+const watchBoard = async (): Promise<void> => {
+    if (watching) return;
+    watching = true;
+    unwrap(
+        await issue({ type: "subscription:camera:moved-rapid", ...stamp() })
+    );
+    unwrap(
+        await issue({
+            type: "subscription:camera:moved-debounced",
+            ...stamp(),
+        })
+    );
+    unwrap(
+        await issue({ type: "subscription:dom:screen-resized", ...stamp() })
+    );
+    for (const type of [
+        "subscription:scene:elements-added",
+        "subscription:scene:elements-updated",
+        "subscription:scene:elements-removed",
+        "subscription:scene:elements-replaced",
+    ] as const) {
+        try {
+            unwrap(await issue({ type, ...stamp(), req: { properties: [] } }));
+        } catch {
+            // Without the scene permission there are no shapes to watch.
+        }
+    }
+};
+
+const start = async (): Promise<void> => {
+    const gen = ++generation;
+    await watchBoard();
+    windowSize = unwrap(
+        await issue({ type: "command:dom:window-size", ...stamp() })
+    );
+    rebuildWorld();
+    await refreshWorld();
+    await warmUp();
+    if (gen !== generation) return;
+    const active: Live = {
+        pet: spawnPet(Date.now(), world, Math.random),
+        tick: null,
+        sent: "",
+        inFlight: false,
+        created: false,
+    };
+    live = active;
+    active.tick = setInterval(() => frame(active), TICK_MS);
+    render(active);
+    console.info(`${LOG} Diny is out`);
+};
+
+const stop = async (): Promise<void> => {
+    generation++;
+    const active = live;
+    live = null;
+    if (active?.tick) clearInterval(active.tick);
+    if (editTimer !== null) clearTimeout(editTimer);
+    editTimer = null;
+    await removeFloating(petId());
+    console.info(`${LOG} Diny is away`);
+};
+
+const remember = async (on: boolean): Promise<void> => {
+    try {
+        unwrap(
+            await issue({
+                type: "command:kv-storage:set",
+                ...stamp(),
+                req: {
+                    key: SETTINGS_KEY,
+                    payload: { [SETTINGS_KEY]: { enabled: on } },
+                },
+            })
+        );
+    } catch (err) {
+        console.error(`${LOG} saving the toggle failed`, err);
+    }
+};
+
+const recalled = async (): Promise<boolean> => {
+    const { got } = unwrap(
+        await issue({
+            type: "command:kv-storage:get",
+            ...stamp(),
+            req: { key: SETTINGS_KEY },
+        })
+    );
+    const settings = got?.[SETTINGS_KEY] as { enabled?: unknown } | undefined;
+    return settings?.enabled === true;
+};
+
+const begin = (): Promise<void> =>
+    start().catch((err) => {
+        enabled = false;
+        console.error(`${LOG} start failed`, err);
+    });
+
+const toggle = async (): Promise<void> => {
+    enabled = !enabled;
+    void remember(enabled);
+    if (enabled) await begin();
+    else await stop();
+};
+
+const installButton = async (attempt: number): Promise<void> => {
+    let created = false;
+    try {
+        created = unwrap(
+            await issue({
+                type: "command:dom:create-action-button",
+                ...stamp(),
+                req: { domElementId: buttonId(), svg: ACTION_BUTTON_SVG },
+            })
+        ).created;
+        if (created) {
+            unwrap(
+                await issue({
+                    type: "subscription:dom:element-clicked",
+                    ...stamp(),
+                    req: { domElementId: buttonId() },
+                })
+            );
+            console.info(`${LOG} action button ready`);
+            return;
+        }
+    } catch (err) {
+        console.error(`${LOG} button attempt ${attempt} failed`, err);
+    }
+    if (attempt >= BUTTON_RETRIES_MS.length) {
+        console.error(`${LOG} action button never created`);
+        return;
+    }
+    setTimeout(() => {
+        void installButton(attempt + 1);
+    }, BUTTON_RETRIES_MS[attempt]);
+};
+
+// Timers left by an earlier activation see live change and stop on their own.
+const reset = (): void => {
+    generation++;
+    live = null;
+    editTimer = null;
+    enabled = false;
+    watching = false;
+    elements = [];
+    refreshing = false;
+    refreshDirty = false;
+    following = false;
+    followZoom = null;
+};
+
+export const activate: DriverModule["activate"] = async (ctx) => {
+    issue = ctx.issueCommand;
+    driverId = ctx.manifest.driverId;
+    reset();
+
+    try {
+        unwrap(
+            await issue({
+                type: "subscription:dom:element-clicked",
+                ...stamp(),
+                req: { domElementId: petId() },
+            })
+        );
+        await installButton(0);
+        if (await recalled().catch(() => false)) {
+            enabled = true;
+            void begin();
+        }
+    } catch (err) {
+        console.error(`${LOG} activation failed`, err);
+    }
+    console.info(`${LOG} activated (${ctx.manifest.driverVersion})`);
+};
+
+export const onEvent: DriverModule["onEvent"] = async (event) => {
+    try {
+        switch (event.type) {
+            case "subscription:dom:element-clicked": {
+                if (event.body.domElementId === buttonId()) {
+                    void toggle();
+                } else if (event.body.domElementId === petId() && live) {
+                    live.pet = clickPet(live.pet, Date.now());
+                    render(live);
+                }
+                return;
+            }
+            case "subscription:camera:moved-rapid": {
+                if (live) followCamera(event.body.zoom);
+                return;
+            }
+            case "subscription:camera:moved-debounced": {
+                if (live) refreshQuietly();
+                return;
+            }
+            case "subscription:dom:screen-resized": {
+                windowSize = {
+                    width: event.body.width,
+                    height: event.body.height,
+                };
+                rebuildWorld();
+                return;
+            }
+            case "subscription:scene:elements-added":
+            case "subscription:scene:elements-updated":
+            case "subscription:scene:elements-removed": {
+                if (live) scheduleRefresh();
+                return;
+            }
+            case "subscription:scene:elements-replaced": {
+                if (!live) return;
+                live.pet = spawnPet(Date.now(), world, Math.random);
+                refreshQuietly();
+                return;
+            }
+            default:
+                return;
+        }
+    } catch (err) {
+        console.error(`${LOG} onEvent failed`, err);
+    }
+};
