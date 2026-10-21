@@ -25,6 +25,7 @@ export type PetState = {
     hop?: Hop;
     path: Stop[];
     shoutQueued: boolean;
+    fallFrom: number;
 };
 
 export type Platform = { id: string; left: number; right: number; top: number };
@@ -136,16 +137,12 @@ const shout = (s: PetState, now: number): PetState => ({
     shoutQueued: false,
 });
 
-const fall = (
-    s: PetState,
-    now: number,
-    w: World,
-    rand: () => number
-): PetState => ({
+const dropFrom = (s: PetState, now: number, at: Pt): PetState => ({
     ...s,
     phase: "fall",
-    x: floorX(HALF_W + rand() * (w.viewW - PET_W), w),
-    y: FALL_FROM_Y,
+    x: at.x,
+    y: at.y,
+    fallFrom: at.y,
     anchor: FLOOR,
     phaseStart: now,
     until: Infinity,
@@ -155,6 +152,17 @@ const fall = (
     hop: undefined,
     path: [],
 });
+
+const fall = (
+    s: PetState,
+    now: number,
+    w: World,
+    rand: () => number
+): PetState =>
+    dropFrom(s, now, {
+        x: floorX(HALF_W + rand() * (w.viewW - PET_W), w),
+        y: FALL_FROM_Y,
+    });
 
 const pickGoal = (s: PetState, w: World, rand: () => number): Stop => {
     if (rand() < HOP_CHANCE) {
@@ -264,7 +272,7 @@ const stepHop = (
         const p = arc(hop.from, to, live.peakY, (t - TAKEOFF_MS) / HOP_MS);
         return { ...s, hop: live, x: p.x, y: p.y, sx: 1, sy: AIRBORNE_SY };
     }
-    if (!landing) return fall(s, now, w, rand);
+    if (!landing) return dropFrom(s, now, to);
     const landed = { ...s, hop: live, x: to.x, y: to.y, anchor: hop.land };
     if (s.shoutQueued) return shout(landed, now);
     if (now < s.until) return { ...landed, sx: SQUASH.sx, sy: SQUASH.sy };
@@ -280,12 +288,12 @@ const stepFall = (
 ): PetState => {
     if (Number.isFinite(s.until)) {
         const at = place(s.anchor, s.x, w);
-        if (!at) return fall(s, now, w, rand);
+        if (!at) return dropFrom(s, now, { x: s.x, y: s.y });
         if (now >= s.until) return settle(s, now, rand, at, s.anchor);
         return { ...s, x: at.x, y: at.y };
     }
     const t = (now - s.phaseStart) / 1000;
-    const y = FALL_FROM_Y + 0.5 * GRAVITY * t * t;
+    const y = s.fallFrom + 0.5 * GRAVITY * t * t;
     const hit = w.platforms
         .filter(
             (p) =>
@@ -316,7 +324,7 @@ const stepGrounded = (
     rand: () => number
 ): PetState => {
     const at = place(s.anchor, s.x, w);
-    if (!at) return fall(s, now, w, rand);
+    if (!at) return dropFrom(s, now, { x: s.x, y: s.y });
     const here = { ...s, x: at.x, y: at.y };
     if (s.phase === "shout") {
         if (now >= s.until) return settle(here, now, rand, at, s.anchor);
@@ -372,6 +380,7 @@ export function spawnPet(now: number, w: World, rand: () => number): PetState {
         sy: AIRBORNE_SY,
         path: [],
         shoutQueued: false,
+        fallFrom: FALL_FROM_Y,
     };
     return fall(start, now, w, rand);
 }

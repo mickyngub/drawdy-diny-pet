@@ -45,6 +45,7 @@ const standing = (x: number, y: number, anchor: Anchor): PetState => ({
     sy: 1,
     path: [],
     shoutQueued: false,
+    fallFrom: 0,
 });
 
 const onFloor = (x: number): PetState =>
@@ -182,17 +183,33 @@ test("a click mid-hop starts the shout on landing", () => {
     assert.equal(shout.s.y, FLOOR_Y);
 });
 
-test("a pet whose shape leaves the world falls in from the top and lands on the floor", () => {
+test("a pet whose shape disappears drops straight down from where it stood and lands on the floor", () => {
     const pet = standing(1200, 600, { kind: "element", id: "p", offset: 100 });
-    const falling = stepPet({ ...pet, until: 9999 }, 0, world(), fixed(0.5));
-    assert.equal(falling.phase, "fall");
-    assert.equal(falling.y, FALL_FROM_Y);
-    const landed = firstWhen(
-        run(falling, 1, 3000, world()),
-        (s) => s.phase === "idle"
-    ).s;
-    assert.deepEqual(landed.anchor, { kind: "floor" });
+    const visits = run({ ...pet, until: 9999 }, 0, 3000, world());
+    const falling = visits.filter((v) => v.s.phase === "fall");
+    assert.equal(falling[0].at, 0);
+    assert.equal(falling[0].s.y, 600);
+    assert.ok(falling.every((v) => v.s.x === 1200));
+    assert.ok(falling[1].s.y > 600);
+    assert.ok(falling.every((v, i) => i === 0 || v.s.y >= falling[i - 1].s.y));
+    const landed = firstWhen(visits, (s) => s.phase === "idle").s;
+    assert.equal(landed.x, 1200);
     assert.equal(landed.y, FLOOR_Y);
+    assert.deepEqual(landed.anchor, { kind: "floor" });
+});
+
+test("a pet whose shape disappears lands on the first shape below it", () => {
+    const pet = standing(1200, 300, {
+        kind: "element",
+        id: "gone",
+        offset: 100,
+    });
+    const below = world([{ id: "below", left: 1100, right: 1300, top: 700 }]);
+    const visits = run({ ...pet, until: 9999 }, 0, 3000, below);
+    const landed = firstWhen(visits, (s) => s.phase === "idle").s;
+    assert.equal(landed.x, 1200);
+    assert.equal(landed.y, 700);
+    assert.equal(landed.anchor.kind === "element" && landed.anchor.id, "below");
 });
 
 test("a falling pet lands on the first shape below it that is not too near the top", () => {
@@ -234,6 +251,7 @@ test("a standing pet whose spot left the view drops back in; one in view stays",
     const w = world();
     const gone = recallPet(onFloor(-200), 0, w, fixed(0.5));
     assert.equal(gone.phase, "fall");
+    assert.equal(gone.y, FALL_FROM_Y);
     const inView = onFloor(800);
     assert.equal(recallPet(inView, 0, w, fixed(0.5)), inView);
 });

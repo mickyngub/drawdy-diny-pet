@@ -19,7 +19,7 @@ A pet for your Drawdy board. Press the button and Diny, Drawdy's dino, drops int
 ## Tips
 
 - Diny stands on shapes, text and images that are flat and at least about 60 pixels wide on screen. Frames and tilted shapes are not for standing on.
-- Pan or zoom and Diny rides along on its shape. When its shape leaves the view or is deleted, Diny drops back in from the top.
+- Pan or zoom and Diny rides along on its shape. When its shape is deleted, Diny drops straight down to the next shape below or the bottom of the screen. When its shape leaves the view, Diny drops back in from the top.
 - Diny stays on: it comes back whenever you open a board, until you press the button again.
 
 ## Is my board safe?
