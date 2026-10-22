@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.0
+
+- Diny stands on what you drew, not the box around it: along a pencil stroke or a line, over a circle or a diamond, on the upper edge of a rotated shape
+- it keeps to the board: never under the sidebar or past the board's edges, even while you carry it
+- it hops onto the minimap too, rides it down when you fold the minimap, and drops off when you hide it
+- grab Diny and drag it anywhere on the board; it dangles while held and drops onto whatever is below when you let go
+- after a good run of hopping it gets tired and naps for half a minute; click it to wake it up
+- new faces: it waves hello where it first lands, jumps and falls with their own faces, and rests with its mouth open a little or hanging wide
+
 ## 1.0.0
 
 First public release
