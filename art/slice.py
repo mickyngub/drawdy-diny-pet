@@ -8,7 +8,13 @@ from PIL import Image
 
 ART = Path(__file__).parent
 OUT = ART.parent / "src" / "sprite-data.ts"
-FRAMES = {"DINY_IDLE": "diny-2.png", "DINY_SHOUT": "diny-1.png"}
+FRAMES = {
+    "DINY_IDLE": "diny-2.png",
+    "DINY_SHOUT": "diny-1.png",
+    "DINY_TIRED": "diny-tired.png",
+    "DINY_SLEEP": "diny-sleep.png",
+    "DINY_HELD": "diny-held.png",
+}
 TARGET_W = 192
 
 def alpha_box(im):

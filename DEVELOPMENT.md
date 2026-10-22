@@ -6,7 +6,7 @@ npm test
 npm run typecheck
 npm run dev          # dev server on :5197; in Drawdy run ⌘K → "Add extension dev server" on a local board
 npm run build        # builds dist/main.js and dist/*.drawdyx
-uv run art/slice.py  # regenerates src/sprite-data.ts from art/diny-1.png and art/diny-2.png
+uv run art/slice.py  # regenerates src/sprite-data.ts from the frames in art/
 npm run preflight    # before submitting: committed, built, pushed, under Drawdy's limits, above the live version
 ```
 

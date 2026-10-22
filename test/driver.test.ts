@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, mock, test } from "node:test";
 import type { DriverManifest } from "@drawdy/driver-protocol";
 import * as driver from "../src/index";
-import { DINY_SHOUT } from "../src/sprite-data";
+import { DINY_HELD, DINY_SHOUT } from "../src/sprite-data";
 import { boot, fakeHost, schemaNodes, type FakeHost } from "./fake-host";
 
 const manifest = {
@@ -219,6 +219,50 @@ test("clicking the pet shows the shouting frame", async () => {
     await settle();
     const [, image] = schemaNodes(host.floating.get(PET)!.schema);
     assert.equal(image.type === "image" && image.child, DINY_SHOUT);
+});
+
+test("dragging Diny lifts it with the pointer and lets it fall where it is let go, without a shout", async () => {
+    const host = fakeHost();
+    const emit = await start(host);
+    await advance(1300);
+    assert.deepEqual(host.floating.get(PET)?.position, {
+        x: 752,
+        y: FLOOR_TOP,
+    });
+    const drag = (type: string, x: number, y: number) =>
+        emit("subscription:dom:drag", {
+            type,
+            domElementId: PET,
+            position: { domSpace: { x, y }, canvasSpace: { x, y } },
+        });
+    const sprite = () => {
+        const [, image] = schemaNodes(host.floating.get(PET)!.schema);
+        return image.type === "image" ? image.child : undefined;
+    };
+
+    await drag("dragStart", 800, 940);
+    await drag("dragging", 801, 941);
+    await advance(2 * TICK_MS);
+    assert.notEqual(sprite(), DINY_HELD);
+
+    await drag("dragging", 300, 400);
+    await advance(2 * TICK_MS);
+    assert.equal(sprite(), DINY_HELD);
+    // Grabbed 44 px above its feet, so the feet hang 44 px below the pointer.
+    assert.deepEqual(host.floating.get(PET)?.position, { x: 252, y: 359 });
+
+    await drag("dragEnd", 300, 400);
+    await emit("subscription:dom:element-clicked", {
+        domElementId: PET,
+        clientX: 300,
+        clientY: 400,
+    });
+    await advance(1500);
+    assert.deepEqual(host.floating.get(PET)?.position, {
+        x: 252,
+        y: FLOOR_TOP,
+    });
+    assert.notEqual(sprite(), DINY_SHOUT);
 });
 
 test("at most one pet update is in flight", async () => {

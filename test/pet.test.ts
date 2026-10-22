@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+    carryPet,
     clickPet,
+    dropPet,
+    pickUpPet,
     recallPet,
     spawnPet,
     stepPet,
@@ -13,7 +16,10 @@ import {
     POP_SCALE,
     SHOUT_FRAME_MS,
     SHOUT_MS,
+    SLEEP_MAX_MS,
+    SLEEP_MIN_MS,
     TAKEOFF_MS,
+    TIRED_HOPS,
     type Anchor,
     type PetState,
     type Platform,
@@ -46,6 +52,7 @@ const standing = (x: number, y: number, anchor: Anchor): PetState => ({
     path: [],
     shoutQueued: false,
     fallFrom: 0,
+    hops: 0,
 });
 
 const onFloor = (x: number): PetState =>
@@ -314,4 +321,97 @@ test("a falling pet lands on a sloped top at the height under its feet", () => {
     assert.equal(landed.x, 800);
     assert.equal(landed.y, 384);
     assert.equal(landed.anchor.kind === "element" && landed.anchor.id, "slope");
+});
+
+test("Diny looks tired once it has hopped 20 times", () => {
+    const visits = run(
+        { ...onFloor(800), hops: TIRED_HOPS - 1 },
+        0,
+        2000,
+        world(),
+        fixed(0.9)
+    );
+    const rested = firstWhen(
+        visits.filter((v) => v.at > 0),
+        (s) => s.phase === "idle"
+    ).s;
+    assert.ok(rested.hops >= TIRED_HOPS);
+    assert.equal(rested.frame, "tired");
+});
+
+test("a tired Diny naps on the spot instead of hopping, then wakes up rested", () => {
+    const w = world();
+    const tired = {
+        ...onFloor(800),
+        hops: TIRED_HOPS,
+        frame: "tired" as const,
+    };
+    const napping = stepPet(tired, 10, w, fixed(0.5));
+    assert.equal(napping.phase, "sleep");
+    assert.equal(napping.frame, "sleep");
+    assert.equal(napping.x, 800);
+    assert.equal(napping.y, FLOOR_Y);
+    const wakeAt = 10 + SLEEP_MIN_MS + 0.5 * (SLEEP_MAX_MS - SLEEP_MIN_MS);
+    assert.equal(stepPet(napping, wakeAt - 1, w, fixed(0.5)).phase, "sleep");
+    const awake = stepPet(napping, wakeAt, w, fixed(0.5));
+    assert.equal(awake.phase, "idle");
+    assert.equal(awake.frame, "idle");
+    assert.equal(awake.hops, 0);
+});
+
+test("clicking a sleeping Diny wakes it with a shout, rested", () => {
+    const w = world();
+    const napping = stepPet(
+        { ...onFloor(800), hops: TIRED_HOPS },
+        10,
+        w,
+        fixed(0.5)
+    );
+    const woken = clickPet(napping, 20);
+    assert.equal(woken.phase, "shout");
+    assert.equal(woken.hops, 0);
+    assert.equal(stepPet(woken, 20 + SHOUT_MS, w, fixed(0.5)).frame, "idle");
+});
+
+test("a picked-up Diny hangs from the pointer where it was grabbed and ignores time and clicks", () => {
+    const held = pickUpPet(onFloor(800), 0, { x: 790, y: 950 });
+    assert.equal(held.phase, "held");
+    assert.equal(held.frame, "held");
+    const carried = carryPet(held, { x: 400, y: 300 });
+    assert.equal(carried.x, 410);
+    assert.equal(carried.y, 334);
+    assert.equal(stepPet(carried, 5000, world(), fixed(0.5)), carried);
+    assert.equal(clickPet(carried, 5000), carried);
+});
+
+test("grabbing a sleeping Diny wakes it", () => {
+    const napping = stepPet(
+        { ...onFloor(800), hops: TIRED_HOPS },
+        10,
+        world(),
+        fixed(0.5)
+    );
+    assert.equal(pickUpPet(napping, 20, { x: 800, y: 950 }).hops, 0);
+});
+
+test("letting go drops Diny from where it hangs onto the shape below", () => {
+    const w = world([{ id: "p", left: 300, right: 500, top: 600 }]);
+    const held = pickUpPet(onFloor(800), 0, { x: 790, y: 950 });
+    const dropped = dropPet(carryPet(held, { x: 400, y: 300 }), 100, w);
+    assert.equal(dropped.phase, "fall");
+    assert.equal(dropped.x, 410);
+    assert.equal(dropped.y, 334);
+    const landed = firstWhen(
+        run(dropped, 100, 3000, w),
+        (s) => s.phase === "idle"
+    ).s;
+    assert.equal(landed.x, 410);
+    assert.equal(landed.y, 600);
+    assert.equal(landed.anchor.kind === "element" && landed.anchor.id, "p");
+});
+
+test("a Diny let go outside the view falls back inside it", () => {
+    const held = pickUpPet(onFloor(800), 0, { x: 800, y: 950 });
+    const dropped = dropPet(carryPet(held, { x: -200, y: 300 }), 100, world());
+    assert.equal(dropped.x, 48);
 });

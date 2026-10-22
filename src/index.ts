@@ -7,7 +7,10 @@ import type {
     SubscribedDrawdyElement,
 } from "@drawdy/driver-protocol";
 import {
+    carryPet,
     clickPet,
+    dropPet,
+    pickUpPet,
     recallPet,
     spawnPet,
     stepPet,
@@ -28,6 +31,9 @@ const EDIT_SETTLE_MS = 400;
 const MIN_PLATFORM_PX = 60;
 const FLOOR_GAP_PX = 16;
 const WARMUP_MS = 240;
+// Drawdy starts a drag on the first pointer move, so a shaky click must not lift Diny.
+const PICKUP_PX = 4;
+const CLICK_AFTER_DROP_MS = 300;
 const WARMUP_POSITION: Point = { x: -10000, y: -10000 };
 const WARMUP_SIZE = 4;
 const SETTINGS_KEY = "settings";
@@ -81,6 +87,8 @@ let refreshing = false;
 let refreshDirty = false;
 let following = false;
 let followZoom: number | null = null;
+let drag: { from: Point; lifted: boolean } | null = null;
+let clickIgnoredUntil = 0;
 
 const buttonId = (): string => `${driverId}:button`;
 
@@ -241,7 +249,7 @@ const petSchema = (frame: Frame, transform: string): DomElementSchema => ({
         height: [PET_H, "px"],
         overflow: "visible",
         pointerEvents: "auto",
-        cursor: "pointer",
+        cursor: frame === "held" ? "grabbing" : "grab",
     },
     children: [
         {
@@ -485,6 +493,36 @@ const reset = (): void => {
     refreshDirty = false;
     following = false;
     followZoom = null;
+    drag = null;
+    clickIgnoredUntil = 0;
+};
+
+const onDrag = (
+    type: "dragStart" | "dragging" | "dragEnd",
+    at: Point
+): void => {
+    if (!live) return;
+    if (type === "dragStart") {
+        drag = { from: at, lifted: false };
+        return;
+    }
+    if (!drag) return;
+    if (!drag.lifted) {
+        if (Math.hypot(at.x - drag.from.x, at.y - drag.from.y) < PICKUP_PX) {
+            if (type === "dragEnd") drag = null;
+            return;
+        }
+        live.pet = pickUpPet(live.pet, Date.now(), drag.from);
+        drag.lifted = true;
+    }
+    live.pet = carryPet(live.pet, at);
+    if (type === "dragEnd") {
+        live.pet = dropPet(live.pet, Date.now(), world);
+        // The release over Diny also arrives as a click, which must not shout.
+        clickIgnoredUntil = Date.now() + CLICK_AFTER_DROP_MS;
+        drag = null;
+    }
+    render(live);
 };
 
 export const activate: DriverModule["activate"] = async (ctx) => {
@@ -496,6 +534,13 @@ export const activate: DriverModule["activate"] = async (ctx) => {
         unwrap(
             await issue({
                 type: "subscription:dom:element-clicked",
+                ...stamp(),
+                req: { domElementId: petId() },
+            })
+        );
+        unwrap(
+            await issue({
+                type: "subscription:dom:drag",
                 ...stamp(),
                 req: { domElementId: petId() },
             })
@@ -518,8 +563,18 @@ export const onEvent: DriverModule["onEvent"] = async (event) => {
                 if (event.body.domElementId === buttonId()) {
                     void toggle();
                 } else if (event.body.domElementId === petId() && live) {
+                    if (Date.now() < clickIgnoredUntil) {
+                        clickIgnoredUntil = 0;
+                        return;
+                    }
                     live.pet = clickPet(live.pet, Date.now());
                     render(live);
+                }
+                return;
+            }
+            case "subscription:dom:drag": {
+                if (event.body.domElementId === petId()) {
+                    onDrag(event.body.type, event.body.position.domSpace);
                 }
                 return;
             }

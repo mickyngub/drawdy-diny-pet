@@ -3,9 +3,9 @@ export type Pt = { x: number; y: number };
 export type Anchor =
     { kind: "floor" } | { kind: "element"; id: string; offset: number };
 
-export type Phase = "idle" | "hop" | "shout" | "fall";
+export type Phase = "idle" | "hop" | "shout" | "fall" | "sleep" | "held";
 
-export type Frame = "idle" | "shout";
+export type Frame = "idle" | "shout" | "tired" | "sleep" | "held";
 
 export type Hop = { from: Pt; to: Pt; peakY: number; land: Anchor };
 
@@ -26,6 +26,9 @@ export type PetState = {
     path: Stop[];
     shoutQueued: boolean;
     fallFrom: number;
+    hops: number;
+    // From the pointer to the feet, kept while Diny is held.
+    grab?: Pt;
 };
 
 export type Platform = {
@@ -70,6 +73,9 @@ export const AIRBORNE_SY = 1.08;
 export const FOOT_PX = 16;
 export const MAX_SLOPE = 0.5;
 export const SPOT_PX = 8;
+export const TIRED_HOPS = 20;
+export const SLEEP_MIN_MS = 20000;
+export const SLEEP_MAX_MS = 40000;
 
 const HALF_W = PET_W / 2;
 const FLOOR: Anchor = { kind: "floor" };
@@ -191,12 +197,22 @@ const settle = (
     anchor,
     phaseStart: now,
     until: now + idleFor(rand),
-    frame: "idle",
+    frame: s.hops >= TIRED_HOPS ? "tired" : "idle",
     sx: 1,
     sy: 1,
     hop: undefined,
     path: [],
     shoutQueued: false,
+});
+
+const nap = (s: PetState, now: number, rand: () => number): PetState => ({
+    ...s,
+    phase: "sleep",
+    phaseStart: now,
+    until: now + SLEEP_MIN_MS + rand() * (SLEEP_MAX_MS - SLEEP_MIN_MS),
+    frame: "sleep",
+    sx: 1,
+    sy: 1,
 });
 
 const shout = (s: PetState, now: number): PetState => ({
@@ -304,6 +320,7 @@ const takeOff = (
         frame: "idle",
         sx: SQUASH.sx,
         sy: SQUASH.sy,
+        hops: s.hops + 1,
         hop: {
             from,
             to,
@@ -399,6 +416,10 @@ const stepGrounded = (
     const at = place(s.anchor, s.x, w);
     if (!at) return dropFrom(s, now, { x: s.x, y: s.y });
     const here = { ...s, x: at.x, y: at.y };
+    if (s.phase === "sleep") {
+        if (now < s.until) return here;
+        return settle({ ...here, hops: 0 }, now, rand, at, s.anchor);
+    }
     if (s.phase === "shout") {
         if (now >= s.until) return settle(here, now, rand, at, s.anchor);
         const t = now - s.phaseStart;
@@ -412,6 +433,7 @@ const stepGrounded = (
     }
     if (now < s.until) return here;
     if (w.viewW < NARROW_PX) return settle(here, now, rand, at, s.anchor);
+    if (s.hops >= TIRED_HOPS) return nap(here, now, rand);
     const path = planPath(here, pickGoal(here, w, rand), w);
     return takeOff({ ...here, path }, now, w, rand);
 };
@@ -424,6 +446,8 @@ export function stepPet(
 ): PetState {
     const world = w.viewW < NARROW_PX ? { ...w, platforms: [] } : w;
     switch (s.phase) {
+        case "held":
+            return s;
         case "hop":
             return stepHop(s, now, world, rand);
         case "fall":
@@ -434,9 +458,43 @@ export function stepPet(
 }
 
 export function clickPet(s: PetState, now: number): PetState {
+    if (s.phase === "held") return s;
     const airborne =
         s.phase === "hop" || (s.phase === "fall" && !Number.isFinite(s.until));
-    return airborne ? { ...s, shoutQueued: true } : shout(s, now);
+    if (airborne) return { ...s, shoutQueued: true };
+    return shout(s.phase === "sleep" ? { ...s, hops: 0 } : s, now);
+}
+
+/** Lifts Diny from wherever it is; grabbing a sleeping Diny wakes it. */
+export function pickUpPet(s: PetState, now: number, pointer: Pt): PetState {
+    return {
+        ...s,
+        phase: "held",
+        phaseStart: now,
+        until: Infinity,
+        frame: "held",
+        sx: 1,
+        sy: 1,
+        hop: undefined,
+        path: [],
+        shoutQueued: false,
+        hops: s.phase === "sleep" ? 0 : s.hops,
+        grab: { x: s.x - pointer.x, y: s.y - pointer.y },
+    };
+}
+
+export function carryPet(s: PetState, pointer: Pt): PetState {
+    if (s.phase !== "held" || !s.grab) return s;
+    return { ...s, x: pointer.x + s.grab.x, y: pointer.y + s.grab.y };
+}
+
+/** Lets go: Diny falls from where it hangs onto whatever is below, back inside the view. */
+export function dropPet(s: PetState, now: number, w: World): PetState {
+    if (s.phase !== "held") return s;
+    return {
+        ...dropFrom(s, now, { x: floorX(s.x, w), y: s.y }),
+        grab: undefined,
+    };
 }
 
 export function spawnPet(now: number, w: World, rand: () => number): PetState {
@@ -454,6 +512,7 @@ export function spawnPet(now: number, w: World, rand: () => number): PetState {
         path: [],
         shoutQueued: false,
         fallFrom: FALL_FROM_Y,
+        hops: 0,
     };
     return fall(start, now, w, rand);
 }
@@ -465,7 +524,9 @@ export function recallPet(
     w: World,
     rand: () => number
 ): PetState {
-    if (s.phase !== "idle" && s.phase !== "shout") return s;
+    if (s.phase !== "idle" && s.phase !== "shout" && s.phase !== "sleep") {
+        return s;
+    }
     const outside =
         s.x + HALF_W < 0 ||
         s.x - HALF_W > w.viewW ||
