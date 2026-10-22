@@ -11,13 +11,25 @@ const atZoom = (zoom: number): ScreenMapping => ({
 });
 
 test("toScreen maps the reference point to its screen point and offsets 1:1 at zoom 1", () => {
-    assert.deepEqual(toScreen(atZoom(1), { x: 100, y: -50 }), { x: 300, y: 200 });
-    assert.deepEqual(toScreen(atZoom(1), { x: 130, y: -70 }), { x: 330, y: 180 });
+    assert.deepEqual(toScreen(atZoom(1), { x: 100, y: -50 }), {
+        x: 300,
+        y: 200,
+    });
+    assert.deepEqual(toScreen(atZoom(1), { x: 130, y: -70 }), {
+        x: 330,
+        y: 180,
+    });
 });
 
 test("toScreen scales offsets from the reference point by the zoom", () => {
-    assert.deepEqual(toScreen(atZoom(2), { x: 100, y: -50 }), { x: 300, y: 200 });
-    assert.deepEqual(toScreen(atZoom(2), { x: 130, y: -70 }), { x: 360, y: 160 });
+    assert.deepEqual(toScreen(atZoom(2), { x: 100, y: -50 }), {
+        x: 300,
+        y: 200,
+    });
+    assert.deepEqual(toScreen(atZoom(2), { x: 130, y: -70 }), {
+        x: 360,
+        y: 160,
+    });
 });
 
 test("rectToScreen places the top-left corner and scales width and height", () => {
