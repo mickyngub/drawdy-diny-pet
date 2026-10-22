@@ -24,6 +24,8 @@ type Options = {
     viewport?: Rect;
     windowSize?: { width: number; height: number };
     canvas?: Rect;
+    // Page elements by id, such as the board frame and the minimap.
+    domRects?: Record<string, Rect>;
     camera?: Camera;
     tool?: string | null;
     denied?: string[];
@@ -81,6 +83,7 @@ export function fakeHost(options: Options = {}, rectOf: RectOf = plainRect) {
     let camera: Camera = options.camera ?? { x: 0, y: 0, zoom: 1 };
     // The canvas fills the window unless a sidebar squeezes it; the viewport is the canvas seen through the camera.
     let canvas: Rect = options.canvas ?? { x: 0, y: 0, ...windowSize };
+    const domRects = new Map(Object.entries(options.domRects ?? {}));
     const viewport = (): Rect =>
         options.viewport ?? {
             x: camera.x,
@@ -145,8 +148,10 @@ export function fakeHost(options: Options = {}, rectOf: RectOf = plainRect) {
                     x: (cmd.req.x - canvas.x) / camera.zoom + camera.x,
                     y: (cmd.req.y - canvas.y) / camera.zoom + camera.y,
                 });
-            case "command:dom:element-rect":
-                return fail("not-found");
+            case "command:dom:element-rect": {
+                const rect = domRects.get(cmd.req.elementId);
+                return rect ? ok(rect) : fail("not-found");
+            }
             case "command:dom:window-size":
                 return ok(windowSize);
             case "command:dom:create-action-button":
@@ -313,6 +318,11 @@ export function fakeHost(options: Options = {}, rectOf: RectOf = plainRect) {
         /** Moves or resizes the canvas, as opening the sidebar does, with no event. */
         moveCanvas(next: Rect) {
             canvas = next;
+        },
+        /** Moves a page element, or takes it off the page with null, with no event. */
+        setDomRect(id: string, rect: Rect | null) {
+            if (rect) domRects.set(id, rect);
+            else domRects.delete(id);
         },
         /** Holds every command of this type unanswered until the returned release is called. */
         hold(type: string) {

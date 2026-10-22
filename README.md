@@ -11,7 +11,7 @@ Diny, Drawdy's mascot, is a green dinosaur in a viking helmet with a sword. Turn
 ## let's hop ٩(◕‿◕)۶
 
 1. Click the **green dino** in the extension rail. Diny drops in from the top of your board.
-2. Watch it land on a shape or at the bottom of the board and wave hello. Every few seconds it hops to a shape nearby or along the bottom, facing the way it goes, then stands there gaping. It keeps to the board and never wanders under the sidebar.
+2. Watch it land on a shape or at the bottom of the board and wave hello. Every few seconds it hops to a shape nearby, onto the minimap or along the bottom, facing the way it goes, then stands there gaping. It keeps to the board and never wanders under the sidebar.
 3. Click Diny and it shouts. Click it mid-hop and it shouts as it lands.
 4. Grab Diny and drag it anywhere on the board. It dangles while you hold it, then drops onto whatever is below when you let go.
 5. After a good run of hopping Diny gets tired and naps for half a minute. Click it to wake it up.

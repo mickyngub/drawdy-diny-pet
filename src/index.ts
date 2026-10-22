@@ -32,6 +32,8 @@ const MIN_PLATFORM_PX = 60;
 const FLOOR_GAP_PX = 16;
 const BOARD_POLL_MS = 500;
 const BOARD_SLACK_PX = 1;
+const BOARD_ID = "drawdy-board";
+const MINIMAP_ID = "drawdy-minimap";
 const WARMUP_MS = 240;
 // Drawdy starts a drag on the first pointer move, so a shaky click must not lift Diny.
 const PICKUP_PX = 4;
@@ -84,6 +86,7 @@ let watching = false;
 let elements: readonly SubscribedDrawdyElement[] = [];
 let mapping: ScreenMapping = { cx: 0, cy: 0, sx: 0, sy: 0, zoom: 1 };
 let board: Rect = { x: 0, y: 0, width: 0, height: 0 };
+let minimap: Rect | null = null;
 let world: World = {
     platforms: [],
     floorY: 0,
@@ -104,7 +107,20 @@ const petId = (): string => `${driverId}:diny`;
 
 const rebuildWorld = (): void => {
     world = {
-        platforms: platformsFrom(elements, mapping, MIN_PLATFORM_PX),
+        platforms: [
+            ...platformsFrom(elements, mapping, MIN_PLATFORM_PX),
+            ...(minimap
+                ? [
+                      {
+                          id: MINIMAP_ID,
+                          left: minimap.x,
+                          right: minimap.x + minimap.width,
+                          top: minimap.y,
+                          ui: true,
+                      },
+                  ]
+                : []),
+        ],
         floorY: board.y + board.height - FLOOR_GAP_PX,
         view: board,
         zoom: mapping.zoom,
@@ -157,6 +173,34 @@ const boardOf = async (viewport: Rect): Promise<Rect> => {
     };
 };
 
+// Hosts before these ids existed, and a hidden minimap, report none.
+const readRect = async (elementId: string): Promise<Rect | null> => {
+    try {
+        const rect = unwrap(
+            await issue({
+                type: "command:dom:element-rect",
+                ...stamp(),
+                req: { elementId },
+            })
+        );
+        return rect.width > 0 && rect.height > 0 ? rect : null;
+    } catch {
+        return null;
+    }
+};
+
+// The canvas stays window-sized behind the frame, which clips it once the sidebar opens.
+const readBoard = async (viewport?: Rect): Promise<Rect> =>
+    (await readRect(BOARD_ID)) ?? boardOf(viewport ?? (await readViewport()));
+
+const sameRect = (a: Rect | null, b: Rect | null): boolean =>
+    a === b ||
+    (a !== null &&
+        b !== null &&
+        (["x", "y", "width", "height"] as const).every(
+            (k) => Math.abs(a[k] - b[k]) <= BOARD_SLACK_PX
+        ));
+
 const readElements = async (
     rect: Rect
 ): Promise<readonly SubscribedDrawdyElement[]> => {
@@ -193,7 +237,10 @@ const refreshWorld = async (): Promise<void> => {
         do {
             refreshDirty = false;
             const viewport = await readViewport();
-            board = await boardOf(viewport);
+            [board, minimap] = await Promise.all([
+                readBoard(viewport),
+                readRect(MINIMAP_ID),
+            ]);
             elements = await readElements(viewport);
             mapping = await readCamera();
         } while (refreshDirty);
@@ -208,14 +255,20 @@ const refreshQuietly = (): void => {
     void refreshWorld().catch(() => undefined);
 };
 
-// Opening the sidebar resizes the board without a window resize or a camera move.
+// Opening the sidebar or folding the minimap moves them without a window resize or a camera move.
 const checkBoard = async (active: Live): Promise<void> => {
     if (live !== active || refreshing) return;
-    const next = await boardOf(await readViewport());
-    const moved = (["x", "y", "width", "height"] as const).some(
-        (k) => Math.abs(next[k] - board[k]) > BOARD_SLACK_PX
-    );
-    if (moved && live === active) refreshQuietly();
+    const [nextBoard, nextMinimap] = await Promise.all([
+        readBoard(),
+        readRect(MINIMAP_ID),
+    ]);
+    if (live !== active || refreshing) return;
+    if (!sameRect(nextBoard, board)) {
+        refreshQuietly();
+    } else if (!sameRect(nextMinimap, minimap)) {
+        minimap = nextMinimap;
+        rebuildWorld();
+    }
 };
 
 const scheduleRefresh = (): void => {
@@ -536,6 +589,7 @@ const reset = (): void => {
     enabled = false;
     watching = false;
     elements = [];
+    minimap = null;
     refreshing = false;
     refreshDirty = false;
     following = false;

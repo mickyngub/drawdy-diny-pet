@@ -51,6 +51,8 @@ export type Platform = {
     top: number;
     // Heights of a curved top, evenly spaced from left to right; a flat top has none.
     ys?: number[];
+    // A box of Drawdy's own UI, such as the minimap: it stays put on screen when the camera zooms.
+    ui?: boolean;
 };
 
 export type World = {
@@ -106,6 +108,8 @@ const floorX = (x: number, w: World): number =>
         ? w.view.x + w.view.width / 2
         : clamp(x, w.view.x + HALF_W, viewRight(w) - HALF_W);
 
+const unitOf = (p: Platform, w: World): number => (p.ui ? 1 : w.zoom);
+
 const platformOf = (w: World, id: string): Platform | undefined =>
     w.platforms.find((p) => p.id === id);
 
@@ -153,14 +157,14 @@ const place = (anchor: Anchor, x: number, w: World): Pt | null => {
     if (anchor.kind === "floor") return { x: floorX(x, w), y: w.floorY };
     const p = platformOf(w, anchor.id);
     if (!p) return null;
-    const at = clamp(p.left + anchor.offset * w.zoom, p.left, p.right);
+    const at = clamp(p.left + anchor.offset * unitOf(p, w), p.left, p.right);
     return { x: at, y: restY(p, at) };
 };
 
 const onPlatform = (p: Platform, x: number, w: World): Anchor => ({
     kind: "element",
     id: p.id,
-    offset: (x - p.left) / w.zoom,
+    offset: (x - p.left) / unitOf(p, w),
 });
 
 // The stretches of a platform's top, in view, gentle enough to land on.

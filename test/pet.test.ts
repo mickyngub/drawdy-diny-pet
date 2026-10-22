@@ -495,6 +495,22 @@ test("Diny lands on a shape half under the sidebar only where the board shows it
     assert.ok(landed.x >= BOARD_LEFT_X, `landed at ${landed.x}`);
 });
 
+test("on the minimap Diny keeps its spot when you zoom, unlike on a shape", () => {
+    const minimap: Platform = {
+        id: "minimap",
+        left: 260,
+        right: 416,
+        top: 736,
+        ui: true,
+    };
+    const zoomed: World = { ...world([minimap]), zoom: 2 };
+    const onMinimap = {
+        ...standing(310, 736, { kind: "element", id: "minimap", offset: 50 }),
+        until: 9999,
+    };
+    assert.equal(stepPet(onMinimap, 1, zoomed, fixed(0.5)).x, 310);
+});
+
 test("Diny drops into the board from just above it, inside its edges", () => {
     const w: World = {
         ...besideSidebar(),

@@ -283,6 +283,42 @@ test("opening the sidebar sends Diny back into the board, onto its floor", async
     });
 });
 
+test("with the sidebar open Diny stands inside the board frame, not on the bottom of the larger canvas it clips", async () => {
+    const frame = { x: 244, y: 12, width: 1344, height: 976 };
+    const host = fakeHost({
+        canvas: { x: 244, y: 12, width: 1600, height: 1000 },
+        domRects: { "drawdy-board": frame },
+    });
+    await start(host);
+    await advance(1300);
+    assert.deepEqual(host.floating.get(PET)?.position, {
+        x: frame.x + frame.width / 2 - 96 / 2,
+        y: frame.y + frame.height - 16 - 85,
+    });
+});
+
+test("Diny stands on the minimap like a shape, rides it as it folds, and drops off when it hides", async () => {
+    const minimap = { x: 700, y: 850, width: 156, height: 134 };
+    const host = fakeHost({ domRects: { "drawdy-minimap": minimap } });
+    await start(host);
+    await advance(1300);
+    assert.deepEqual(host.floating.get(PET)?.position, {
+        x: 752,
+        y: minimap.y - 85,
+    });
+
+    host.setDomRect("drawdy-minimap", { ...minimap, y: 940, height: 44 });
+    await advance(600);
+    assert.deepEqual(host.floating.get(PET)?.position, { x: 752, y: 940 - 85 });
+
+    host.setDomRect("drawdy-minimap", null);
+    await advance(1000);
+    assert.deepEqual(host.floating.get(PET)?.position, {
+        x: 752,
+        y: FLOOR_TOP,
+    });
+});
+
 test("at most one pet update is in flight", async () => {
     const host = fakeHost();
     await start(host);
