@@ -38,6 +38,9 @@ const ELEMENT_PROPERTIES: SubscribeableKey[] = [
     "width",
     "height",
     "rotation",
+    "points",
+    "componentType",
+    "strokeWidth",
 ];
 const ORIGIN: Point = { x: 0, y: 0 };
 

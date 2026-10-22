@@ -28,7 +28,14 @@ export type PetState = {
     fallFrom: number;
 };
 
-export type Platform = { id: string; left: number; right: number; top: number };
+export type Platform = {
+    id: string;
+    left: number;
+    right: number;
+    top: number;
+    // Heights of a curved top, evenly spaced from left to right; a flat top has none.
+    ys?: number[];
+};
 
 export type World = {
     platforms: Platform[];
@@ -60,9 +67,14 @@ export const FALL_FROM_Y = -100;
 export const NARROW_PX = 200;
 export const SQUASH = { sx: 1.1, sy: 0.85 };
 export const AIRBORNE_SY = 1.08;
+export const FOOT_PX = 16;
+export const MAX_SLOPE = 0.5;
+export const SPOT_PX = 8;
 
 const HALF_W = PET_W / 2;
 const FLOOR: Anchor = { kind: "floor" };
+
+type Span = { lo: number; hi: number };
 
 const clamp = (v: number, lo: number, hi: number): number =>
     Math.min(hi, Math.max(lo, v));
@@ -73,14 +85,50 @@ const floorX = (x: number, w: World): number =>
 const platformOf = (w: World, id: string): Platform | undefined =>
     w.platforms.find((p) => p.id === id);
 
+const heightAt = (p: Platform, x: number): number => {
+    const { ys } = p;
+    if (!ys || ys.length < 2) return p.top;
+    const u =
+        ((clamp(x, p.left, p.right) - p.left) / (p.right - p.left)) *
+        (ys.length - 1);
+    const i = Math.min(Math.floor(u), ys.length - 2);
+    return ys[i] + (ys[i + 1] - ys[i]) * (u - i);
+};
+
+// The feet rest on the highest point under them, so a slope never swallows a foot.
+const restY = (p: Platform, x: number): number => {
+    const { ys } = p;
+    if (!ys || ys.length < 2) return p.top;
+    const lo = Math.max(p.left, x - FOOT_PX);
+    const hi = Math.min(p.right, x + FOOT_PX);
+    const step = (p.right - p.left) / (ys.length - 1);
+    let y = Math.min(heightAt(p, lo), heightAt(p, hi));
+    for (
+        let i = Math.ceil((lo - p.left) / step);
+        i < ys.length && p.left + i * step <= hi;
+        i++
+    ) {
+        y = Math.min(y, ys[i]);
+    }
+    return y;
+};
+
+const slopeAt = (p: Platform, x: number): number =>
+    (heightAt(p, x + FOOT_PX) - heightAt(p, x - FOOT_PX)) / (2 * FOOT_PX);
+
+const standableAt = (p: Platform, x: number, w: World): boolean => {
+    const y = restY(p, x);
+    return (
+        y >= MIN_TOP_PX && y <= w.floorY && Math.abs(slopeAt(p, x)) <= MAX_SLOPE
+    );
+};
+
 const place = (anchor: Anchor, x: number, w: World): Pt | null => {
     if (anchor.kind === "floor") return { x: floorX(x, w), y: w.floorY };
     const p = platformOf(w, anchor.id);
     if (!p) return null;
-    return {
-        x: clamp(p.left + anchor.offset * w.zoom, p.left, p.right),
-        y: p.top,
-    };
+    const at = clamp(p.left + anchor.offset * w.zoom, p.left, p.right);
+    return { x: at, y: restY(p, at) };
 };
 
 const onPlatform = (p: Platform, x: number, w: World): Anchor => ({
@@ -89,14 +137,41 @@ const onPlatform = (p: Platform, x: number, w: World): Anchor => ({
     offset: (x - p.left) / w.zoom,
 });
 
-const landingSpan = (p: Platform, w: World): { lo: number; hi: number } => ({
-    lo: Math.max(p.left, HALF_W),
-    hi: Math.min(p.right, w.viewW - HALF_W),
-});
+// The stretches of a platform's top, in view, gentle enough to land on.
+const landingSpans = (p: Platform, w: World): Span[] => {
+    const lo = Math.max(p.left, HALF_W);
+    const hi = Math.min(p.right, w.viewW - HALF_W);
+    if (lo > hi) return [];
+    if (!p.ys) return standableAt(p, lo, w) ? [{ lo, hi }] : [];
+    const n = Math.max(1, Math.ceil((hi - lo) / SPOT_PX));
+    const half = (hi - lo) / n / 2;
+    const spans: Span[] = [];
+    for (let k = 0; k <= n; k++) {
+        const x = lo + ((hi - lo) * k) / n;
+        if (!standableAt(p, x, w)) continue;
+        const last = spans.at(-1);
+        if (last && last.hi >= x - half) last.hi = Math.min(hi, x + half);
+        else
+            spans.push({
+                lo: Math.max(lo, x - half),
+                hi: Math.min(hi, x + half),
+            });
+    }
+    return spans;
+};
 
-const standable = (p: Platform, w: World): boolean => {
-    const { lo, hi } = landingSpan(p, w);
-    return lo <= hi && p.top >= MIN_TOP_PX && p.top <= w.floorY;
+const distanceTo = (spans: Span[], x: number): number =>
+    Math.min(...spans.map((s) => Math.max(s.lo - x, 0, x - s.hi)));
+
+// Lands in the middle 60% of the standable length, skipping the steep parts.
+const spotIn = (spans: Span[], r: number): number => {
+    const total = spans.reduce((sum, s) => sum + s.hi - s.lo, 0);
+    let rest = (0.2 + 0.6 * r) * total;
+    for (const s of spans) {
+        if (rest <= s.hi - s.lo) return s.lo + rest;
+        rest -= s.hi - s.lo;
+    }
+    return spans[spans.length - 1].hi;
 };
 
 const idleFor = (rand: () => number): number =>
@@ -167,18 +242,18 @@ const fall = (
 const pickGoal = (s: PetState, w: World, rand: () => number): Stop => {
     if (rand() < HOP_CHANCE) {
         const current = s.anchor.kind === "element" ? s.anchor.id : null;
-        let best: { p: Platform; d: number } | null = null;
+        let best: { p: Platform; spans: Span[]; d: number } | null = null;
         for (const p of w.platforms) {
-            if (p.id === current || !standable(p, w)) continue;
-            const { lo, hi } = landingSpan(p, w);
-            const d = Math.max(lo - s.x, 0, s.x - hi);
+            if (p.id === current) continue;
+            const spans = landingSpans(p, w);
+            if (spans.length === 0) continue;
+            const d = distanceTo(spans, s.x);
             if (d <= PLATFORM_REACH_PX && (best === null || d < best.d)) {
-                best = { p, d };
+                best = { p, spans, d };
             }
         }
         if (best !== null) {
-            const { lo, hi } = landingSpan(best.p, w);
-            const x = lo + (0.2 + 0.6 * rand()) * (hi - lo);
+            const x = spotIn(best.spans, rand());
             return { land: onPlatform(best.p, x, w), x };
         }
     }
@@ -295,18 +370,16 @@ const stepFall = (
     const t = (now - s.phaseStart) / 1000;
     const y = s.fallFrom + 0.5 * GRAVITY * t * t;
     const hit = w.platforms
+        .filter((p) => s.x >= p.left && s.x <= p.right)
+        .map((p) => ({ p, top: restY(p, s.x) }))
         .filter(
-            (p) =>
-                standable(p, w) &&
-                s.x >= p.left &&
-                s.x <= p.right &&
-                p.top >= s.y &&
-                p.top <= y
+            ({ top }) =>
+                top >= MIN_TOP_PX && top <= w.floorY && top >= s.y && top <= y
         )
         .sort((a, b) => a.top - b.top)[0];
     if (!hit && y < w.floorY) return { ...s, y, sx: 1, sy: AIRBORNE_SY };
     const landed: PetState = hit
-        ? { ...s, y: hit.top, anchor: onPlatform(hit, s.x, w) }
+        ? { ...s, y: hit.top, anchor: onPlatform(hit.p, s.x, w) }
         : { ...s, y: w.floorY, anchor: FLOOR };
     if (s.shoutQueued) return shout(landed, now);
     return {

@@ -255,3 +255,63 @@ test("a standing pet whose spot left the view drops back in; one in view stays",
     const inView = onFloor(800);
     assert.equal(recallPet(inView, 0, w, fixed(0.5)), inView);
 });
+
+test("on a curved top the feet rest on the highest point under them, and Diny rides the curve", () => {
+    const hill: Platform = {
+        id: "hill",
+        left: 1000,
+        right: 1400,
+        top: 500,
+        ys: [700, 500, 700],
+    };
+    const pet = standing(1100, 600, {
+        kind: "element",
+        id: "hill",
+        offset: 100,
+    });
+    const next = stepPet(
+        { ...pet, until: 5000 },
+        10,
+        world([hill]),
+        fixed(0.5)
+    );
+    assert.equal(next.x, 1100);
+    // The feet span 1084 to 1116; the curve is highest at 1116, at 700 - 200 * 116 / 200.
+    assert.equal(next.y, 584);
+});
+
+test("a hop onto a curved top lands on its gentle stretch, not on the steep side", () => {
+    const ramp: Platform = {
+        id: "ramp",
+        left: 1000,
+        right: 1400,
+        top: 500,
+        ys: [900, 500, 500],
+    };
+    const visits = run(onFloor(1000), 0, 4000, world([ramp]));
+    const landed = firstWhen(
+        visits.filter((v) => v.at > 0),
+        (s) => s.phase === "idle"
+    ).s;
+    assert.equal(landed.anchor.kind === "element" && landed.anchor.id, "ramp");
+    assert.ok(landed.x > 1200, `landed at ${landed.x}`);
+    assert.equal(landed.y, 500);
+});
+
+test("a falling pet lands on a sloped top at the height under its feet", () => {
+    const slope: Platform = {
+        id: "slope",
+        left: 700,
+        right: 900,
+        top: 300,
+        ys: [500, 300],
+    };
+    const w = world([slope]);
+    const landed = firstWhen(
+        run(spawnPet(0, w, fixed(0.5)), 0, 3000, w),
+        (s) => s.phase === "idle"
+    ).s;
+    assert.equal(landed.x, 800);
+    assert.equal(landed.y, 384);
+    assert.equal(landed.anchor.kind === "element" && landed.anchor.id, "slope");
+});

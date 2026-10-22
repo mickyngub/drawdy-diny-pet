@@ -21,7 +21,7 @@ Diny, Drawdy's mascot, is a green dinosaur in a viking helmet with a sword. Turn
 
 ## make it yours (｡•̀ᴗ-)✧
 
-- **Shapes to stand on**: Diny stands on flat shapes at least about 60 px wide on screen. It skips rotated shapes, narrow ones and frames.
+- **Shapes to stand on**: Diny stands on what you drew, not the box around it: along a pencil stroke or a line, over the top of a circle or a diamond, on the upper edge of a rotated shape. It lands only where the outline is gentle enough to stand on, and skips frames and anything narrower than about 60 px on screen.
 - **Pan and zoom**: Diny rides along on its shape and stays the same size on screen.
 - **Delete its shape**: Diny drops straight down to the shape below or the bottom of the screen.
 - **Move away**: when its spot leaves the view, Diny drops back in from the top.

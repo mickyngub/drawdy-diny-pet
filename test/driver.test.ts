@@ -127,6 +127,19 @@ test("a camera move carries a pet standing on a shape", async () => {
     assert.deepEqual(host.floating.get(PET)?.position, { x: 552, y: 315 });
 });
 
+test("Diny lands on a pencil stroke where the stroke runs, not on the top of its box", async () => {
+    const host = fakeHost();
+    host.put({
+        drawdyElementId: "slope",
+        type: "freedraw",
+        points: [0, 400, 1600, 800],
+    });
+    await start(host);
+    await advance(1200);
+    // At x 800 the stroke is at 600; the feet rest at its highest point under them, 596.
+    assert.deepEqual(host.floating.get(PET)?.position, { x: 752, y: 511 });
+});
+
 test("a pet whose shape is deleted falls back to the floor", async () => {
     const host = fakeHost();
     host.put({
