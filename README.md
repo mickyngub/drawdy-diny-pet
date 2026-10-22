@@ -1,42 +1,43 @@
 # Diny Pet
 
-A pet for your Drawdy board. Press the button and Diny, Drawdy's dino, drops into your view and makes itself at home: it hops between the tops of your shapes and along the bottom of the screen, and shouts when you click it.
+Diny, Drawdy's mascot, is a green dinosaur in a viking helmet with a sword. Turn it on and Diny moves onto your board: it hops from shape to shape, rides along when you pan and shouts when you click it.
+
+![Turning Diny on: Diny drops onto the board and hops between the tops of the shapes, rides along on its shape as the view pans, then shouts when it is clicked.](https://raw.githubusercontent.com/mickyngub/drawdy-diny-pet/main/docs/media/diny-pet.gif)
 
 ## What it's for
 
-- **Company** in a long working session.
-- **A smile** when you share your screen in a workshop or a demo.
-- **Showing a friend** that a whiteboard can have a pet.
+- **Company on your board** during a long working session.
+- **A bit of fun** in a workshop, a demo or a screen share.
+- **A friendly face** on a board you open every day.
 
 ## How to use
 
-1. Find the Diny button with the board's action buttons on the right.
-2. Press it. Diny drops in from the top and lands on a shape or at the bottom of the screen.
-3. Every few seconds Diny hops: onto a nearby shape, or along the bottom of the screen. It turns to face the way it goes.
-4. Click Diny and it shouts.
-5. Press the button again to send Diny away.
+1. Click the **Diny Pet** button on the right of the board. Diny drops in from the top of the screen.
+2. Leave it be. Every few seconds Diny hops to a nearby shape or along the bottom of the screen.
+3. Click Diny to make it shout.
+4. Click the button again to send Diny away. Until you do, Diny comes back every time you open a board.
+
+## What Diny does
+
+- **Hops** between the tops of the shapes in view and the bottom of the screen, a short hop at a time, facing the way it goes.
+- **Picks its shapes**: it stands only on flat shapes at least about 60 px wide on screen, and skips frames, rotated shapes and narrow ones.
+- **Rides along** on its shape when you pan or zoom, and stays the same size on screen.
+- **Drops** straight down to the shape below or the bottom of the screen when its shape is deleted.
+- **Drops back in** from the top when its spot leaves the view, and when you open another board.
 
 ## Tips
 
-- Diny stands on shapes, text and images that are flat and at least about 60 pixels wide on screen. Frames and tilted shapes are not for standing on.
-- Pan or zoom and Diny rides along on its shape. When its shape is deleted, Diny drops straight down to the next shape below or the bottom of the screen. When its shape leaves the view, Diny drops back in from the top.
-- Diny stays on: it comes back whenever you open a board, until you press the button again.
-
-## Is my board safe?
-
-Yes. Nothing on your board changes.
-
 - Only you see Diny. It lives on your screen, so collaborators see nothing unless you share your screen.
-- Diny never adds, moves or edits elements, and nothing goes into undo.
-- Diny takes clicks only on its own small box. Everything around it works as usual.
+- Diny never changes your board: it adds, moves and edits nothing, and nothing goes into undo.
+- Only Diny's own small box takes clicks. Drawing, selecting and panning work everywhere else, even right next to it.
 
 ## Privacy
 
-- Nothing loads from the network. Diny comes with the extension.
+- Nothing leaves your browser and nothing loads from the network. Diny comes with the extension.
 - Diny reads where the shapes in your view are so it knows where to stand. That stays in your browser.
-- The extension remembers only whether Diny is on, in this browser.
+- Whether Diny is on is saved in this browser only.
 
 ## Credits and licence
 
-- The extension's code is [MIT](https://github.com/mickyngub/drawdy-diny-pet/blob/main/LICENSE). Diny is Drawdy's mascot and is not covered by the MIT licence.
-- Building it yourself? See [DEVELOPMENT.md](https://github.com/mickyngub/drawdy-diny-pet/blob/main/DEVELOPMENT.md).
+- Diny artwork by Drawdy. Diny is Drawdy's mascot and is not covered by the MIT licence.
+- The extension's code is [MIT](https://github.com/mickyngub/drawdy-diny-pet/blob/main/LICENSE). Building it yourself? See [DEVELOPMENT.md](https://github.com/mickyngub/drawdy-diny-pet/blob/main/DEVELOPMENT.md).

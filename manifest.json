@@ -2,7 +2,7 @@
     "driverId": "mickyngub.diny-pet",
     "driverName": "Diny Pet",
     "driverVersion": "1.0.0",
-    "description": "A pet dino for your board. Press the button and Diny drops in, then hops between the tops of the shapes in your view and along the bottom of the screen, turning to face the way it goes. Click Diny and it shouts. Only you see it: nothing on the board changes, nothing syncs to collaborators, and the board stays usable all around it. Diny comes back whenever you open a board until you press the button again to send it away.",
+    "description": "Diny, Drawdy's dinosaur mascot, comes to live on your board. Press the button and Diny drops in, then hops between the tops of the shapes in view and the bottom of the screen, facing the way it goes. It rides along when you pan or zoom, drops when its shape is deleted and comes back in when its spot leaves the view. Click Diny and it shouts. Only you see it, nothing on the board changes, and Diny stays on across boards until you turn it off.",
     "icon": "icon.png",
     "main": "main.js",
     "permissions": [
