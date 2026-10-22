@@ -415,3 +415,54 @@ test("a Diny let go outside the view falls back inside it", () => {
     const dropped = dropPet(carryPet(held, { x: -200, y: 300 }), 100, world());
     assert.equal(dropped.x, 48);
 });
+
+test("in the air Diny wears its jumping face, and lands back on its resting face", () => {
+    const visits = run(onFloor(800), 0, 2000, world(), fixed(0.9));
+    const [first] = hopsOf(visits);
+    const start = first[0].at;
+    const airborne = first.filter(
+        (v) => v.at >= start + TAKEOFF_MS && v.at < start + TAKEOFF_MS + HOP_MS
+    );
+    assert.ok(airborne.length > 0);
+    assert.ok(airborne.every((v) => v.s.frame === "jump"));
+    const rested = firstWhen(
+        visits.filter((v) => v.at > 0),
+        (s) => s.phase === "idle"
+    ).s;
+    assert.equal(rested.frame, "idle");
+});
+
+test("Diny drops in with its falling face and waves hello where it first lands, only once", () => {
+    const w = world();
+    const spawned = spawnPet(0, w, fixed(0.5));
+    assert.equal(spawned.frame, "fall");
+    const visits = run(spawned, 0, 12000, w, fixed(0.5));
+    const rests = visits.filter(
+        (v, i) => v.s.phase === "idle" && visits[i - 1]?.s.phase !== "idle"
+    );
+    assert.ok(rests.length >= 2, `${rests.length} rests`);
+    assert.equal(rests[0].s.frame, "wave");
+    assert.ok(rests.slice(1).every((v) => v.s.frame !== "wave"));
+});
+
+test("standing on something you drew makes Diny happy", () => {
+    const shape = { id: "p", left: 1100, right: 1300, top: 600 };
+    const landed = firstWhen(
+        run(onFloor(800), 0, 4000, world([shape])).filter((v) => v.at > 0),
+        (s) => s.phase === "idle"
+    ).s;
+    assert.equal(landed.anchor.kind, "element");
+    assert.equal(landed.frame, "happy");
+});
+
+test("a Diny let go falls with its falling face and lands without a hello", () => {
+    const w = world();
+    const held = pickUpPet(onFloor(800), 0, { x: 800, y: 950 });
+    const dropped = dropPet(carryPet(held, { x: 600, y: 400 }), 100, w);
+    assert.equal(dropped.frame, "fall");
+    const landed = firstWhen(
+        run(dropped, 100, 3000, w),
+        (s) => s.phase === "idle"
+    ).s;
+    assert.equal(landed.frame, "idle");
+});

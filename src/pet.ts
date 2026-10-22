@@ -5,7 +5,16 @@ export type Anchor =
 
 export type Phase = "idle" | "hop" | "shout" | "fall" | "sleep" | "held";
 
-export type Frame = "idle" | "shout" | "tired" | "sleep" | "held";
+export type Frame =
+    | "idle"
+    | "happy"
+    | "wave"
+    | "jump"
+    | "fall"
+    | "shout"
+    | "tired"
+    | "sleep"
+    | "held";
 
 export type Hop = { from: Pt; to: Pt; peakY: number; land: Anchor };
 
@@ -29,6 +38,8 @@ export type PetState = {
     hops: number;
     // From the pointer to the feet, kept while Diny is held.
     grab?: Pt;
+    // Set while Diny drops into view, so its first stop is a hello.
+    greet?: boolean;
 };
 
 export type Platform = {
@@ -183,6 +194,12 @@ const spotIn = (spans: Span[], r: number): number => {
 const idleFor = (rand: () => number): number =>
     IDLE_MIN_MS + rand() * (IDLE_MAX_MS - IDLE_MIN_MS);
 
+const restingFrame = (s: PetState, anchor: Anchor): Frame => {
+    if (s.hops >= TIRED_HOPS) return "tired";
+    if (s.greet) return "wave";
+    return anchor.kind === "element" ? "happy" : "idle";
+};
+
 const settle = (
     s: PetState,
     now: number,
@@ -197,12 +214,13 @@ const settle = (
     anchor,
     phaseStart: now,
     until: now + idleFor(rand),
-    frame: s.hops >= TIRED_HOPS ? "tired" : "idle",
+    frame: restingFrame(s, anchor),
     sx: 1,
     sy: 1,
     hop: undefined,
     path: [],
     shoutQueued: false,
+    greet: false,
 });
 
 const nap = (s: PetState, now: number, rand: () => number): PetState => ({
@@ -237,7 +255,7 @@ const dropFrom = (s: PetState, now: number, at: Pt): PetState => ({
     anchor: FLOOR,
     phaseStart: now,
     until: Infinity,
-    frame: "idle",
+    frame: "fall",
     sx: 1,
     sy: AIRBORNE_SY,
     hop: undefined,
@@ -249,11 +267,13 @@ const fall = (
     now: number,
     w: World,
     rand: () => number
-): PetState =>
-    dropFrom(s, now, {
+): PetState => ({
+    ...dropFrom(s, now, {
         x: floorX(HALF_W + rand() * (w.viewW - PET_W), w),
         y: FALL_FROM_Y,
-    });
+    }),
+    greet: true,
+});
 
 const pickGoal = (s: PetState, w: World, rand: () => number): Stop => {
     if (rand() < HOP_CHANCE) {
@@ -362,12 +382,22 @@ const stepHop = (
     }
     if (t < TAKEOFF_MS + HOP_MS) {
         const p = arc(hop.from, to, live.peakY, (t - TAKEOFF_MS) / HOP_MS);
-        return { ...s, hop: live, x: p.x, y: p.y, sx: 1, sy: AIRBORNE_SY };
+        return {
+            ...s,
+            hop: live,
+            x: p.x,
+            y: p.y,
+            frame: "jump",
+            sx: 1,
+            sy: AIRBORNE_SY,
+        };
     }
     if (!landing) return dropFrom(s, now, to);
     const landed = { ...s, hop: live, x: to.x, y: to.y, anchor: hop.land };
     if (s.shoutQueued) return shout(landed, now);
-    if (now < s.until) return { ...landed, sx: SQUASH.sx, sy: SQUASH.sy };
+    if (now < s.until) {
+        return { ...landed, frame: "idle", sx: SQUASH.sx, sy: SQUASH.sy };
+    }
     if (s.path.length > 0) return takeOff(landed, now, w, rand);
     return settle(landed, now, rand, to, hop.land);
 };
@@ -402,6 +432,7 @@ const stepFall = (
     return {
         ...landed,
         until: now + LANDING_MS,
+        frame: "idle",
         sx: SQUASH.sx,
         sy: SQUASH.sy,
     };

@@ -1,14 +1,22 @@
 import type { Frame } from "./pet";
 import {
+    DINY_FALL,
+    DINY_HAPPY,
     DINY_HELD,
     DINY_IDLE,
+    DINY_JUMP,
     DINY_SHOUT,
     DINY_SLEEP,
     DINY_TIRED,
+    DINY_WAVE,
 } from "./sprite-data";
 
 export const PET_SPRITES: Record<Frame, string> = {
     idle: DINY_IDLE,
+    happy: DINY_HAPPY,
+    wave: DINY_WAVE,
+    jump: DINY_JUMP,
+    fall: DINY_FALL,
     shout: DINY_SHOUT,
     tired: DINY_TIRED,
     sleep: DINY_SLEEP,

@@ -11,6 +11,10 @@ OUT = ART.parent / "src" / "sprite-data.ts"
 FRAMES = {
     "DINY_IDLE": "diny-2.png",
     "DINY_SHOUT": "diny-1.png",
+    "DINY_HAPPY": "diny-happy.png",
+    "DINY_WAVE": "diny-wave.png",
+    "DINY_JUMP": "diny-jump.png",
+    "DINY_FALL": "diny-fall.png",
     "DINY_TIRED": "diny-tired.png",
     "DINY_SLEEP": "diny-sleep.png",
     "DINY_HELD": "diny-held.png",
