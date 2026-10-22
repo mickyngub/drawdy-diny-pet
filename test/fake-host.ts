@@ -23,6 +23,7 @@ export type Floating = {
 type Options = {
     viewport?: Rect;
     windowSize?: { width: number; height: number };
+    canvas?: Rect;
     camera?: Camera;
     tool?: string | null;
     denied?: string[];
@@ -78,13 +79,14 @@ const plainRect: RectOf = (el) => {
 export function fakeHost(options: Options = {}, rectOf: RectOf = plainRect) {
     const windowSize = options.windowSize ?? { width: 1600, height: 1000 };
     let camera: Camera = options.camera ?? { x: 0, y: 0, zoom: 1 };
-    // The canvas fills the window, so the viewport is the window seen through the camera.
+    // The canvas fills the window unless a sidebar squeezes it; the viewport is the canvas seen through the camera.
+    let canvas: Rect = options.canvas ?? { x: 0, y: 0, ...windowSize };
     const viewport = (): Rect =>
         options.viewport ?? {
             x: camera.x,
             y: camera.y,
-            width: windowSize.width / camera.zoom,
-            height: windowSize.height / camera.zoom,
+            width: canvas.width / camera.zoom,
+            height: canvas.height / camera.zoom,
         };
     const held = new Map<string, (() => void)[]>();
     const sent: Sent[] = [];
@@ -135,13 +137,13 @@ export function fakeHost(options: Options = {}, rectOf: RectOf = plainRect) {
                 return ok({ ...camera });
             case "command:camera:canvas-to-screen":
                 return ok({
-                    x: (cmd.req.x - camera.x) * camera.zoom,
-                    y: (cmd.req.y - camera.y) * camera.zoom,
+                    x: canvas.x + (cmd.req.x - camera.x) * camera.zoom,
+                    y: canvas.y + (cmd.req.y - camera.y) * camera.zoom,
                 });
             case "command:camera:screen-to-canvas":
                 return ok({
-                    x: cmd.req.x / camera.zoom + camera.x,
-                    y: cmd.req.y / camera.zoom + camera.y,
+                    x: (cmd.req.x - canvas.x) / camera.zoom + camera.x,
+                    y: (cmd.req.y - canvas.y) / camera.zoom + camera.y,
                 });
             case "command:dom:element-rect":
                 return fail("not-found");
@@ -307,6 +309,10 @@ export function fakeHost(options: Options = {}, rectOf: RectOf = plainRect) {
         },
         moveCamera(next: Camera) {
             camera = next;
+        },
+        /** Moves or resizes the canvas, as opening the sidebar does, with no event. */
+        moveCanvas(next: Rect) {
+            canvas = next;
         },
         /** Holds every command of this type unanswered until the returned release is called. */
         hold(type: string) {

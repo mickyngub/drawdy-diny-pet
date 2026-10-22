@@ -1,3 +1,5 @@
+import type { Rect } from "./screen";
+
 export type Pt = { x: number; y: number };
 
 export type Anchor =
@@ -7,7 +9,7 @@ export type Phase = "idle" | "hop" | "shout" | "fall" | "sleep" | "held";
 
 export type Frame =
     | "idle"
-    | "happy"
+    | "gape"
     | "wave"
     | "jump"
     | "fall"
@@ -54,8 +56,8 @@ export type Platform = {
 export type World = {
     platforms: Platform[];
     floorY: number;
-    viewW: number;
-    viewH: number;
+    // The board's visible area on screen; Diny never leaves it.
+    view: Rect;
     zoom: number;
 };
 
@@ -87,6 +89,7 @@ export const SPOT_PX = 8;
 export const TIRED_HOPS = 20;
 export const SLEEP_MIN_MS = 20000;
 export const SLEEP_MAX_MS = 40000;
+export const GAPE_CHANCE = 0.5;
 
 const HALF_W = PET_W / 2;
 const FLOOR: Anchor = { kind: "floor" };
@@ -96,8 +99,12 @@ type Span = { lo: number; hi: number };
 const clamp = (v: number, lo: number, hi: number): number =>
     Math.min(hi, Math.max(lo, v));
 
+const viewRight = (w: World): number => w.view.x + w.view.width;
+
 const floorX = (x: number, w: World): number =>
-    w.viewW < PET_W ? w.viewW / 2 : clamp(x, HALF_W, w.viewW - HALF_W);
+    w.view.width < PET_W
+        ? w.view.x + w.view.width / 2
+        : clamp(x, w.view.x + HALF_W, viewRight(w) - HALF_W);
 
 const platformOf = (w: World, id: string): Platform | undefined =>
     w.platforms.find((p) => p.id === id);
@@ -136,7 +143,9 @@ const slopeAt = (p: Platform, x: number): number =>
 const standableAt = (p: Platform, x: number, w: World): boolean => {
     const y = restY(p, x);
     return (
-        y >= MIN_TOP_PX && y <= w.floorY && Math.abs(slopeAt(p, x)) <= MAX_SLOPE
+        y >= w.view.y + MIN_TOP_PX &&
+        y <= w.floorY &&
+        Math.abs(slopeAt(p, x)) <= MAX_SLOPE
     );
 };
 
@@ -156,8 +165,8 @@ const onPlatform = (p: Platform, x: number, w: World): Anchor => ({
 
 // The stretches of a platform's top, in view, gentle enough to land on.
 const landingSpans = (p: Platform, w: World): Span[] => {
-    const lo = Math.max(p.left, HALF_W);
-    const hi = Math.min(p.right, w.viewW - HALF_W);
+    const lo = Math.max(p.left, w.view.x + HALF_W);
+    const hi = Math.min(p.right, viewRight(w) - HALF_W);
     if (lo > hi) return [];
     if (!p.ys) return standableAt(p, lo, w) ? [{ lo, hi }] : [];
     const n = Math.max(1, Math.ceil((hi - lo) / SPOT_PX));
@@ -194,10 +203,10 @@ const spotIn = (spans: Span[], r: number): number => {
 const idleFor = (rand: () => number): number =>
     IDLE_MIN_MS + rand() * (IDLE_MAX_MS - IDLE_MIN_MS);
 
-const restingFrame = (s: PetState, anchor: Anchor): Frame => {
+const restingFrame = (s: PetState, rand: () => number): Frame => {
     if (s.hops >= TIRED_HOPS) return "tired";
     if (s.greet) return "wave";
-    return anchor.kind === "element" ? "happy" : "idle";
+    return rand() < GAPE_CHANCE ? "gape" : "idle";
 };
 
 const settle = (
@@ -214,7 +223,7 @@ const settle = (
     anchor,
     phaseStart: now,
     until: now + idleFor(rand),
-    frame: restingFrame(s, anchor),
+    frame: restingFrame(s, rand),
     sx: 1,
     sy: 1,
     hop: undefined,
@@ -269,8 +278,8 @@ const fall = (
     rand: () => number
 ): PetState => ({
     ...dropFrom(s, now, {
-        x: floorX(HALF_W + rand() * (w.viewW - PET_W), w),
-        y: FALL_FROM_Y,
+        x: floorX(w.view.x + HALF_W + rand() * (w.view.width - PET_W), w),
+        y: w.view.y + FALL_FROM_Y,
     }),
     greet: true,
 });
@@ -421,7 +430,10 @@ const stepFall = (
         .map((p) => ({ p, top: restY(p, s.x) }))
         .filter(
             ({ top }) =>
-                top >= MIN_TOP_PX && top <= w.floorY && top >= s.y && top <= y
+                top >= w.view.y + MIN_TOP_PX &&
+                top <= w.floorY &&
+                top >= s.y &&
+                top <= y
         )
         .sort((a, b) => a.top - b.top)[0];
     if (!hit && y < w.floorY) return { ...s, y, sx: 1, sy: AIRBORNE_SY };
@@ -463,7 +475,9 @@ const stepGrounded = (
         };
     }
     if (now < s.until) return here;
-    if (w.viewW < NARROW_PX) return settle(here, now, rand, at, s.anchor);
+    if (w.view.width < NARROW_PX) {
+        return settle(here, now, rand, at, s.anchor);
+    }
     if (s.hops >= TIRED_HOPS) return nap(here, now, rand);
     const path = planPath(here, pickGoal(here, w, rand), w);
     return takeOff({ ...here, path }, now, w, rand);
@@ -475,7 +489,7 @@ export function stepPet(
     w: World,
     rand: () => number
 ): PetState {
-    const world = w.viewW < NARROW_PX ? { ...w, platforms: [] } : w;
+    const world = w.view.width < NARROW_PX ? { ...w, platforms: [] } : w;
     switch (s.phase) {
         case "held":
             return s;
@@ -514,9 +528,14 @@ export function pickUpPet(s: PetState, now: number, pointer: Pt): PetState {
     };
 }
 
-export function carryPet(s: PetState, pointer: Pt): PetState {
+/** Diny hangs from the pointer but stays inside the board, however far the pointer goes. */
+export function carryPet(s: PetState, pointer: Pt, w: World): PetState {
     if (s.phase !== "held" || !s.grab) return s;
-    return { ...s, x: pointer.x + s.grab.x, y: pointer.y + s.grab.y };
+    return {
+        ...s,
+        x: floorX(pointer.x + s.grab.x, w),
+        y: clamp(pointer.y + s.grab.y, w.view.y + PET_H, w.floorY),
+    };
 }
 
 /** Lets go: Diny falls from where it hangs onto whatever is below, back inside the view. */
@@ -548,7 +567,10 @@ export function spawnPet(now: number, w: World, rand: () => number): PetState {
     return fall(start, now, w, rand);
 }
 
-/** Drops a standing pet back in from the top when its spot has left the view. */
+/**
+ * Drops a standing pet back in from the top when its spot has left the view,
+ * and nudges it off a board edge it pokes past, so it falls onto what is below.
+ */
 export function recallPet(
     s: PetState,
     now: number,
@@ -559,9 +581,11 @@ export function recallPet(
         return s;
     }
     const outside =
-        s.x + HALF_W < 0 ||
-        s.x - HALF_W > w.viewW ||
-        s.y < 0 ||
-        s.y - PET_H > w.viewH;
-    return outside ? fall(s, now, w, rand) : s;
+        s.x + HALF_W < w.view.x ||
+        s.x - HALF_W > viewRight(w) ||
+        s.y < w.view.y ||
+        s.y - PET_H > w.view.y + w.view.height;
+    if (outside) return fall(s, now, w, rand);
+    const inside = floorX(s.x, w);
+    return inside === s.x ? s : dropFrom(s, now, { x: inside, y: s.y });
 }

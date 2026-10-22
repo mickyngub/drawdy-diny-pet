@@ -265,6 +265,24 @@ test("dragging Diny lifts it with the pointer and lets it fall where it is let g
     assert.notEqual(sprite(), DINY_SHOUT);
 });
 
+test("opening the sidebar sends Diny back into the board, onto its floor", async () => {
+    const host = fakeHost();
+    await start(host);
+    await advance(1300);
+    assert.deepEqual(host.floating.get(PET)?.position, {
+        x: 752,
+        y: FLOOR_TOP,
+    });
+
+    host.moveCanvas({ x: 900, y: 0, width: 700, height: 900 });
+    await advance(2000);
+    // Dropped back in at the middle of the board and landed 16 px above its bottom.
+    assert.deepEqual(host.floating.get(PET)?.position, {
+        x: 900 + 700 / 2 - 96 / 2,
+        y: 900 - 16 - 85,
+    });
+});
+
 test("at most one pet update is in flight", async () => {
     const host = fakeHost();
     await start(host);

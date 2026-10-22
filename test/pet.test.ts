@@ -13,6 +13,8 @@ import {
     HOP_MS,
     IDLE_MAX_MS,
     IDLE_MIN_MS,
+    PET_H,
+    PET_W,
     POP_SCALE,
     SHOUT_FRAME_MS,
     SHOUT_MS,
@@ -31,10 +33,17 @@ const FLOOR_Y = 984;
 const world = (platforms: Platform[] = [], viewW = 1600): World => ({
     platforms,
     floorY: FLOOR_Y,
-    viewW,
-    viewH: 1000,
+    view: { x: 0, y: 0, width: viewW, height: 1000 },
     zoom: 1,
 });
+
+// The same 1600 × 1000 window with a 250 px sidebar open on the left.
+const SIDEBAR_PX = 250;
+const besideSidebar = (platforms: Platform[] = []): World => ({
+    ...world(platforms),
+    view: { x: SIDEBAR_PX, y: 0, width: 1600 - SIDEBAR_PX, height: 1000 },
+});
+const BOARD_LEFT_X = SIDEBAR_PX + PET_W / 2;
 
 const fixed = (value: number) => () => value;
 
@@ -377,7 +386,7 @@ test("a picked-up Diny hangs from the pointer where it was grabbed and ignores t
     const held = pickUpPet(onFloor(800), 0, { x: 790, y: 950 });
     assert.equal(held.phase, "held");
     assert.equal(held.frame, "held");
-    const carried = carryPet(held, { x: 400, y: 300 });
+    const carried = carryPet(held, { x: 400, y: 300 }, world());
     assert.equal(carried.x, 410);
     assert.equal(carried.y, 334);
     assert.equal(stepPet(carried, 5000, world(), fixed(0.5)), carried);
@@ -397,7 +406,7 @@ test("grabbing a sleeping Diny wakes it", () => {
 test("letting go drops Diny from where it hangs onto the shape below", () => {
     const w = world([{ id: "p", left: 300, right: 500, top: 600 }]);
     const held = pickUpPet(onFloor(800), 0, { x: 790, y: 950 });
-    const dropped = dropPet(carryPet(held, { x: 400, y: 300 }), 100, w);
+    const dropped = dropPet(carryPet(held, { x: 400, y: 300 }, w), 100, w);
     assert.equal(dropped.phase, "fall");
     assert.equal(dropped.x, 410);
     assert.equal(dropped.y, 334);
@@ -412,7 +421,11 @@ test("letting go drops Diny from where it hangs onto the shape below", () => {
 
 test("a Diny let go outside the view falls back inside it", () => {
     const held = pickUpPet(onFloor(800), 0, { x: 800, y: 950 });
-    const dropped = dropPet(carryPet(held, { x: -200, y: 300 }), 100, world());
+    const dropped = dropPet(
+        carryPet(held, { x: -200, y: 300 }, world()),
+        100,
+        world()
+    );
     assert.equal(dropped.x, 48);
 });
 
@@ -445,20 +458,87 @@ test("Diny drops in with its falling face and waves hello where it first lands, 
     assert.ok(rests.slice(1).every((v) => v.s.frame !== "wave"));
 });
 
-test("standing on something you drew makes Diny happy", () => {
+test("on a shape or the floor, Diny rests with its mouth either open a little or hanging wide", () => {
     const shape = { id: "p", left: 1100, right: 1300, top: 600 };
+    const restOf = (w: World, r: number) =>
+        firstWhen(
+            run(onFloor(800), 0, 4000, w, fixed(r)).filter((v) => v.at > 0),
+            (s) => s.phase === "idle"
+        ).s;
+    const shut = restOf(world([shape]), 0.5);
+    assert.equal(shut.anchor.kind, "element");
+    assert.equal(shut.frame, "idle");
+    const gaping = restOf(world([shape]), 0.2);
+    assert.equal(gaping.anchor.kind, "element");
+    assert.equal(gaping.frame, "gape");
+    const onTheFloor = restOf(world(), 0.2);
+    assert.equal(onTheFloor.anchor.kind, "floor");
+    assert.equal(onTheFloor.frame, "gape");
+});
+
+test("with the sidebar open Diny walks the floor only beside it, never under it", () => {
+    const w = besideSidebar();
+    const visits = run(onFloor(600), 0, 20000, w, fixed(0));
+    assert.ok(visits.some((v) => v.s.x === BOARD_LEFT_X));
+    assert.ok(visits.every((v) => v.s.x >= BOARD_LEFT_X));
+});
+
+test("Diny lands on a shape half under the sidebar only where the board shows it", () => {
+    const shape = { id: "p", left: 100, right: 400, top: 600 };
     const landed = firstWhen(
-        run(onFloor(800), 0, 4000, world([shape])).filter((v) => v.at > 0),
+        run(onFloor(500), 0, 4000, besideSidebar([shape]), fixed(0)).filter(
+            (v) => v.at > 0
+        ),
         (s) => s.phase === "idle"
     ).s;
-    assert.equal(landed.anchor.kind, "element");
-    assert.equal(landed.frame, "happy");
+    assert.equal(landed.anchor.kind === "element" && landed.anchor.id, "p");
+    assert.ok(landed.x >= BOARD_LEFT_X, `landed at ${landed.x}`);
+});
+
+test("Diny drops into the board from just above it, inside its edges", () => {
+    const w: World = {
+        ...besideSidebar(),
+        view: { x: SIDEBAR_PX, y: 60, width: 1600 - SIDEBAR_PX, height: 900 },
+    };
+    const spawned = spawnPet(0, w, fixed(0));
+    assert.equal(spawned.x, BOARD_LEFT_X);
+    assert.equal(spawned.y, 60 + FALL_FROM_Y);
+});
+
+test("a held Diny stays inside the board wherever the pointer goes", () => {
+    const w = besideSidebar();
+    const held = pickUpPet(onFloor(800), 0, { x: 800, y: 950 });
+    const pulledOut = carryPet(held, { x: 100, y: -50 }, w);
+    assert.equal(pulledOut.x, BOARD_LEFT_X);
+    assert.equal(pulledOut.y, PET_H);
+    const pulledDown = carryPet(held, { x: 2000, y: 2000 }, w);
+    assert.equal(pulledDown.x, 1600 - PET_W / 2);
+    assert.equal(pulledDown.y, FLOOR_Y);
+});
+
+test("when the sidebar opens over a standing Diny, it steps out onto the shape it stood on", () => {
+    const w = besideSidebar([{ id: "p", left: 100, right: 600, top: 600 }]);
+    const standingHalfUnder = standing(260, 600, {
+        kind: "element",
+        id: "p",
+        offset: 160,
+    });
+    const stepped = recallPet(standingHalfUnder, 0, w, fixed(0.5));
+    assert.equal(stepped.phase, "fall");
+    assert.equal(stepped.x, BOARD_LEFT_X);
+    const landed = firstWhen(
+        run(stepped, 0, 1000, w),
+        (s) => s.phase === "idle"
+    ).s;
+    assert.equal(landed.x, BOARD_LEFT_X);
+    assert.equal(landed.y, 600);
+    assert.equal(landed.anchor.kind === "element" && landed.anchor.id, "p");
 });
 
 test("a Diny let go falls with its falling face and lands without a hello", () => {
     const w = world();
     const held = pickUpPet(onFloor(800), 0, { x: 800, y: 950 });
-    const dropped = dropPet(carryPet(held, { x: 600, y: 400 }), 100, w);
+    const dropped = dropPet(carryPet(held, { x: 600, y: 400 }, w), 100, w);
     assert.equal(dropped.frame, "fall");
     const landed = firstWhen(
         run(dropped, 100, 3000, w),

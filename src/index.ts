@@ -20,7 +20,7 @@ import {
     type PetState,
     type World,
 } from "./pet";
-import type { Point, ScreenMapping } from "./screen";
+import type { Point, Rect, ScreenMapping } from "./screen";
 import { ACTION_BUTTON_SVG, ALL_SPRITES, PET_SPRITES } from "./sprites";
 import { platformsFrom } from "./world";
 
@@ -30,6 +30,8 @@ const TICK_MS = 16;
 const EDIT_SETTLE_MS = 400;
 const MIN_PLATFORM_PX = 60;
 const FLOOR_GAP_PX = 16;
+const BOARD_POLL_MS = 500;
+const BOARD_SLACK_PX = 1;
 const WARMUP_MS = 240;
 // Drawdy starts a drag on the first pointer move, so a shaky click must not lift Diny.
 const PICKUP_PX = 4;
@@ -69,6 +71,7 @@ const unwrap = <V>(response: {
 type Live = {
     pet: PetState;
     tick: ReturnType<typeof setInterval> | null;
+    poll: ReturnType<typeof setInterval> | null;
     sent: string;
     inFlight: boolean;
     created: boolean;
@@ -80,8 +83,13 @@ let live: Live | null = null;
 let watching = false;
 let elements: readonly SubscribedDrawdyElement[] = [];
 let mapping: ScreenMapping = { cx: 0, cy: 0, sx: 0, sy: 0, zoom: 1 };
-let windowSize = { width: 0, height: 0 };
-let world: World = { platforms: [], floorY: 0, viewW: 0, viewH: 0, zoom: 1 };
+let board: Rect = { x: 0, y: 0, width: 0, height: 0 };
+let world: World = {
+    platforms: [],
+    floorY: 0,
+    view: board,
+    zoom: 1,
+};
 let editTimer: ReturnType<typeof setTimeout> | null = null;
 let refreshing = false;
 let refreshDirty = false;
@@ -97,9 +105,8 @@ const petId = (): string => `${driverId}:diny`;
 const rebuildWorld = (): void => {
     world = {
         platforms: platformsFrom(elements, mapping, MIN_PLATFORM_PX),
-        floorY: windowSize.height - FLOOR_GAP_PX,
-        viewW: windowSize.width,
-        viewH: windowSize.height,
+        floorY: board.y + board.height - FLOOR_GAP_PX,
+        view: board,
         zoom: mapping.zoom,
     };
 };
@@ -119,14 +126,41 @@ const readCamera = async (zoom?: number): Promise<ScreenMapping> => {
     return { cx: ORIGIN.x, cy: ORIGIN.y, sx: screen.x, sy: screen.y, zoom: z };
 };
 
-const readElements = async (): Promise<readonly SubscribedDrawdyElement[]> => {
+const readViewport = async (): Promise<Rect> =>
+    unwrap(
+        await issue({ type: "command:camera:get-viewport-rect", ...stamp() })
+    ).rect;
+
+const canvasToScreen = async (p: Point): Promise<Point> =>
+    unwrap(
+        await issue({
+            type: "command:camera:canvas-to-screen",
+            ...stamp(),
+            req: p,
+        })
+    );
+
+// Both corners are converted right after the viewport is read, so a moving camera barely skews the result.
+const boardOf = async (viewport: Rect): Promise<Rect> => {
+    const [topLeft, bottomRight] = await Promise.all([
+        canvasToScreen(viewport),
+        canvasToScreen({
+            x: viewport.x + viewport.width,
+            y: viewport.y + viewport.height,
+        }),
+    ]);
+    return {
+        x: topLeft.x,
+        y: topLeft.y,
+        width: bottomRight.x - topLeft.x,
+        height: bottomRight.y - topLeft.y,
+    };
+};
+
+const readElements = async (
+    rect: Rect
+): Promise<readonly SubscribedDrawdyElement[]> => {
     try {
-        const { rect } = unwrap(
-            await issue({
-                type: "command:camera:get-viewport-rect",
-                ...stamp(),
-            })
-        );
         const { drawdyElements: hits } = unwrap(
             await issue({
                 type: "command:scene:query-rect",
@@ -158,7 +192,9 @@ const refreshWorld = async (): Promise<void> => {
     try {
         do {
             refreshDirty = false;
-            elements = await readElements();
+            const viewport = await readViewport();
+            board = await boardOf(viewport);
+            elements = await readElements(viewport);
             mapping = await readCamera();
         } while (refreshDirty);
     } finally {
@@ -170,6 +206,16 @@ const refreshWorld = async (): Promise<void> => {
 
 const refreshQuietly = (): void => {
     void refreshWorld().catch(() => undefined);
+};
+
+// Opening the sidebar resizes the board without a window resize or a camera move.
+const checkBoard = async (active: Live): Promise<void> => {
+    if (live !== active || refreshing) return;
+    const next = await boardOf(await readViewport());
+    const moved = (["x", "y", "width", "height"] as const).some(
+        (k) => Math.abs(next[k] - board[k]) > BOARD_SLACK_PX
+    );
+    if (moved && live === active) refreshQuietly();
 };
 
 const scheduleRefresh = (): void => {
@@ -375,22 +421,22 @@ const watchBoard = async (): Promise<void> => {
 const start = async (): Promise<void> => {
     const gen = ++generation;
     await watchBoard();
-    windowSize = unwrap(
-        await issue({ type: "command:dom:window-size", ...stamp() })
-    );
-    rebuildWorld();
     await refreshWorld();
     await warmUp();
     if (gen !== generation) return;
     const active: Live = {
         pet: spawnPet(Date.now(), world, Math.random),
         tick: null,
+        poll: null,
         sent: "",
         inFlight: false,
         created: false,
     };
     live = active;
     active.tick = setInterval(() => frame(active), TICK_MS);
+    active.poll = setInterval(() => {
+        void checkBoard(active).catch(() => undefined);
+    }, BOARD_POLL_MS);
     render(active);
     console.info(`${LOG} Diny is out`);
 };
@@ -400,6 +446,7 @@ const stop = async (): Promise<void> => {
     const active = live;
     live = null;
     if (active?.tick) clearInterval(active.tick);
+    if (active?.poll) clearInterval(active.poll);
     if (editTimer !== null) clearTimeout(editTimer);
     editTimer = null;
     await removeFloating(petId());
@@ -515,7 +562,7 @@ const onDrag = (
         live.pet = pickUpPet(live.pet, Date.now(), drag.from);
         drag.lifted = true;
     }
-    live.pet = carryPet(live.pet, at);
+    live.pet = carryPet(live.pet, at, world);
     if (type === "dragEnd") {
         live.pet = dropPet(live.pet, Date.now(), world);
         // The release over Diny also arrives as a click, which must not shout.
@@ -587,11 +634,7 @@ export const onEvent: DriverModule["onEvent"] = async (event) => {
                 return;
             }
             case "subscription:dom:screen-resized": {
-                windowSize = {
-                    width: event.body.width,
-                    height: event.body.height,
-                };
-                rebuildWorld();
+                if (live) refreshQuietly();
                 return;
             }
             case "subscription:scene:elements-added":
