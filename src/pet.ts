@@ -63,7 +63,7 @@ export type World = {
     zoom: number;
 };
 
-export const PET_W = 96;
+export const PET_W = 78;
 export const PET_H = 85;
 export const IDLE_MIN_MS = 1500;
 export const IDLE_MAX_MS = 4000;

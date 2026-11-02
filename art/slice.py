@@ -18,7 +18,7 @@ FRAMES = {
     "DINY_SLEEP": "diny-sleep.png",
     "DINY_HELD": "diny-held.png",
 }
-TARGET_W = 192
+TARGET_W = 156
 
 def alpha_box(im):
     return im.getchannel("A").point(lambda a: 255 if a > 12 else 0).getbbox()
@@ -27,7 +27,8 @@ def feet_x(im):
     a = im.getchannel("A").load()
     w, h = im.size
     _, _, _, bottom = alpha_box(im)
-    xs = [x for y in range(int(bottom * 0.9), bottom) for x in range(w) if a[x, y] > 12]
+    # Only the soles: the tail reaches into the lowest tenth and would pull the centre left.
+    xs = [x for y in range(int(bottom * 0.97), bottom) for x in range(w) if a[x, y] > 12]
     return sum(xs) / len(xs)
 
 def to_webp_uri(im, quality=85):
@@ -42,7 +43,7 @@ left = min(b[0] for b in boxes)
 bottom = max(b[3] for b in boxes)
 # The pet stands at the bottom centre of its box, so both frames move by the
 # same amount until the feet touch the bottom edge and sit as near the middle
-# as the sword allows; a flip then turns Diny round on the spot.
+# as the art allows; a flip then turns Diny round on the spot.
 dx = min(round(feet_x(frames["DINY_IDLE"]) - w / 2), left)
 dy = h - bottom
 target_h = round(h * TARGET_W / w)

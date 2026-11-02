@@ -2,7 +2,7 @@
 
 **a little dino that lives on your board.**
 
-Diny, Drawdy's mascot, is a green dinosaur in a viking helmet with a sword. Turn it on and Diny keeps you company, hopping from shape to shape, riding along when you pan and shouting when you click it ♡
+Diny, Drawdy's mascot, is a mint dinosaur in a viking helmet with a lime marker. Turn it on and Diny keeps you company, hopping from shape to shape, riding along when you pan and shouting when you click it ♡
 
 ![Turning Diny on: Diny drops onto the board and hops between the tops of the shapes, rides along on its shape as the view pans, then shouts when it is clicked.](https://raw.githubusercontent.com/mickyngub/drawdy-diny-pet/main/docs/media/diny-pet.gif)
 

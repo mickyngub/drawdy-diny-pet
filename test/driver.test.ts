@@ -15,7 +15,7 @@ const PET = `${manifest.driverId}:diny`;
 const BUTTON = `${manifest.driverId}:button`;
 const TICK_MS = 16;
 const WARMUP_MS = 240;
-// Window 1600 × 1000: the floor is at 984 and the pet's box is 96 × 85 above its feet.
+// Window 1600 × 1000: the floor is at 984 and the pet's box is 78 × 85 above its feet.
 const FLOOR_TOP = 984 - 85;
 
 const settle = async () => {
@@ -74,7 +74,7 @@ test("toggling on creates the pet as a fixed overlay that only takes clicks on i
     assert.equal(pet.asPopover, false);
     const [root, ...rest] = schemaNodes(pet.schema);
     assert.equal(root.styles?.pointerEvents, "auto");
-    assert.deepEqual(root.styles?.width, [96, "px"]);
+    assert.deepEqual(root.styles?.width, [78, "px"]);
     assert.deepEqual(root.styles?.height, [85, "px"]);
     assert.ok(rest.every((node) => node.styles?.pointerEvents === "none"));
     assert.ok(rest.every((node) => node.domId === undefined));
@@ -119,12 +119,12 @@ test("a camera move carries a pet standing on a shape", async () => {
     });
     const emit = await start(host);
     await advance(1200);
-    assert.deepEqual(host.floating.get(PET)?.position, { x: 752, y: 415 });
+    assert.deepEqual(host.floating.get(PET)?.position, { x: 761, y: 415 });
 
     host.moveCamera({ x: 200, y: 100, zoom: 1 });
     await emit("subscription:camera:moved-rapid", { x: 200, y: 100, zoom: 1 });
     await settle();
-    assert.deepEqual(host.floating.get(PET)?.position, { x: 552, y: 315 });
+    assert.deepEqual(host.floating.get(PET)?.position, { x: 561, y: 315 });
 });
 
 test("Diny lands on a pencil stroke where the stroke runs, not on the top of its box", async () => {
@@ -137,7 +137,7 @@ test("Diny lands on a pencil stroke where the stroke runs, not on the top of its
     await start(host);
     await advance(1200);
     // At x 800 the stroke is at 600; the feet rest at its highest point under them, 596.
-    assert.deepEqual(host.floating.get(PET)?.position, { x: 752, y: 511 });
+    assert.deepEqual(host.floating.get(PET)?.position, { x: 761, y: 511 });
 });
 
 test("a pet whose shape is deleted falls back to the floor", async () => {
@@ -226,7 +226,7 @@ test("dragging Diny lifts it with the pointer and lets it fall where it is let g
     const emit = await start(host);
     await advance(1300);
     assert.deepEqual(host.floating.get(PET)?.position, {
-        x: 752,
+        x: 761,
         y: FLOOR_TOP,
     });
     const drag = (type: string, x: number, y: number) =>
@@ -249,7 +249,7 @@ test("dragging Diny lifts it with the pointer and lets it fall where it is let g
     await advance(2 * TICK_MS);
     assert.equal(sprite(), DINY_HELD);
     // Grabbed 44 px above its feet, so the feet hang 44 px below the pointer.
-    assert.deepEqual(host.floating.get(PET)?.position, { x: 252, y: 359 });
+    assert.deepEqual(host.floating.get(PET)?.position, { x: 261, y: 359 });
 
     await drag("dragEnd", 300, 400);
     await emit("subscription:dom:element-clicked", {
@@ -259,7 +259,7 @@ test("dragging Diny lifts it with the pointer and lets it fall where it is let g
     });
     await advance(1500);
     assert.deepEqual(host.floating.get(PET)?.position, {
-        x: 252,
+        x: 261,
         y: FLOOR_TOP,
     });
     assert.notEqual(sprite(), DINY_SHOUT);
@@ -270,7 +270,7 @@ test("opening the sidebar sends Diny back into the board, onto its floor", async
     await start(host);
     await advance(1300);
     assert.deepEqual(host.floating.get(PET)?.position, {
-        x: 752,
+        x: 761,
         y: FLOOR_TOP,
     });
 
@@ -278,7 +278,7 @@ test("opening the sidebar sends Diny back into the board, onto its floor", async
     await advance(2000);
     // Dropped back in at the middle of the board and landed 16 px above its bottom.
     assert.deepEqual(host.floating.get(PET)?.position, {
-        x: 900 + 700 / 2 - 96 / 2,
+        x: 900 + 700 / 2 - 78 / 2,
         y: 900 - 16 - 85,
     });
 });
@@ -292,7 +292,7 @@ test("with the sidebar open Diny stands inside the board frame, not on the botto
     await start(host);
     await advance(1300);
     assert.deepEqual(host.floating.get(PET)?.position, {
-        x: frame.x + frame.width / 2 - 96 / 2,
+        x: frame.x + frame.width / 2 - 78 / 2,
         y: frame.y + frame.height - 16 - 85,
     });
 });
@@ -303,18 +303,18 @@ test("Diny stands on the minimap like a shape, rides it as it folds, and drops o
     await start(host);
     await advance(1300);
     assert.deepEqual(host.floating.get(PET)?.position, {
-        x: 752,
+        x: 761,
         y: minimap.y - 85,
     });
 
     host.setDomRect("drawdy-minimap", { ...minimap, y: 940, height: 44 });
     await advance(600);
-    assert.deepEqual(host.floating.get(PET)?.position, { x: 752, y: 940 - 85 });
+    assert.deepEqual(host.floating.get(PET)?.position, { x: 761, y: 940 - 85 });
 
     host.setDomRect("drawdy-minimap", null);
     await advance(1000);
     assert.deepEqual(host.floating.get(PET)?.position, {
-        x: 752,
+        x: 761,
         y: FLOOR_TOP,
     });
 });

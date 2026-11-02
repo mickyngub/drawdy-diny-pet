@@ -426,7 +426,7 @@ test("a Diny let go outside the view falls back inside it", () => {
         100,
         world()
     );
-    assert.equal(dropped.x, 48);
+    assert.equal(dropped.x, 39);
 });
 
 test("in the air Diny wears its jumping face, and lands back on its resting face", () => {
