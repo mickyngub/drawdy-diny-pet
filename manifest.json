@@ -1,8 +1,8 @@
 {
     "driverId": "mickyngub.diny-pet",
     "driverName": "Diny Pet",
-    "driverVersion": "1.1.0",
-    "description": "A little dino that lives on your board. Click the green dino in the rail and Diny, Drawdy's mascot, drops in, then hops between the tops of your shapes, the minimap and the bottom of the board, facing the way it goes. Pan and it rides along; delete its shape and it drops. Click Diny and it shouts. Only you see it, and your board never changes. Made for long working sessions, workshops and anyone who wants company on the board.",
+    "driverVersion": "2.0.0",
+    "description": "A little dino that lives on your board. Click the green dino in the rail and Diny, Drawdy's mascot, drops in, then hops between the tops of your shapes, the minimap and the bottom of the board, thinking, sketching and chatting between hops. Pan and it rides along; delete its shape and it drops. Click Diny and it shouts; click three times fast for a sword salute. Only you see it, and your board never changes. Made for long working sessions, workshops and anyone who wants company on the board.",
     "icon": "icon.png",
     "main": "main.js",
     "permissions": [
