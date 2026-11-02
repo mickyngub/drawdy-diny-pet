@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.0.1
+
+- republished build, no changes since 2.0.0
+
 ## 2.0.0
 
 - a new look: Diny is now Drawdy's mint Viking dino, holding a lime marker, with every pose from the mascot bible
