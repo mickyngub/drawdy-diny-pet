@@ -17,8 +17,26 @@ FRAMES = {
     "DINY_TIRED": "diny-tired.png",
     "DINY_SLEEP": "diny-sleep.png",
     "DINY_HELD": "diny-held.png",
+    "DINY_CHEER": "diny-cheer.png",
+    "DINY_HAPPY": "diny-happy.png",
+    "DINY_THINKING": "diny-thinking.png",
+    "DINY_DRAW": "diny-draw.png",
+    "DINY_TALK": "diny-talk.png",
+    "DINY_SHRUG": "diny-shrug.png",
+    "DINY_WAG": "diny-wag.png",
+    "DINY_SWORD": "diny-sword.png",
+    "DINY_BATTLE_CRY": "diny-battle-cry.png",
+    "DINY_SLASH": "diny-slash.png",
+    "DINY_SALUTE": "diny-salute.png",
+    "DINY_WAI_KRU": "diny-wai-kru.png",
+    "DINY_GUARD": "diny-guard.png",
+    "DINY_JAB": "diny-jab.png",
+    "DINY_CROSS": "diny-cross.png",
+    "DINY_KICK": "diny-kick.png",
+    "DINY_TEEP": "diny-teep.png",
+    "DINY_VICTORY": "diny-victory.png",
 }
-TARGET_W = 156
+TARGET_W = 192
 
 def alpha_box(im):
     return im.getchannel("A").point(lambda a: 255 if a > 12 else 0).getbbox()

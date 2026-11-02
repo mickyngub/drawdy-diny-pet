@@ -16,12 +16,15 @@ import {
     PET_H,
     PET_W,
     POP_SCALE,
+    ROUTINES,
     SHOUT_FRAME_MS,
     SHOUT_MS,
     SLEEP_MAX_MS,
     SLEEP_MIN_MS,
     TAKEOFF_MS,
     TIRED_HOPS,
+    WORKOUT_HOPS,
+    routineMs,
     type Anchor,
     type PetState,
     type Platform,
@@ -334,7 +337,7 @@ test("a falling pet lands on a sloped top at the height under its feet", () => {
 
 test("Diny looks tired once it has hopped 20 times", () => {
     const visits = run(
-        { ...onFloor(800), hops: TIRED_HOPS - 1 },
+        { ...onFloor(800), hops: TIRED_HOPS - 1, trained: true },
         0,
         2000,
         world(),
@@ -426,7 +429,7 @@ test("a Diny let go outside the view falls back inside it", () => {
         100,
         world()
     );
-    assert.equal(dropped.x, 39);
+    assert.equal(dropped.x, 48);
 });
 
 test("in the air Diny wears its jumping face, and lands back on its resting face", () => {
@@ -458,22 +461,117 @@ test("Diny drops in with its falling face and waves hello where it first lands, 
     assert.ok(rests.slice(1).every((v) => v.s.frame !== "wave"));
 });
 
-test("on a shape or the floor, Diny rests with its mouth either open a little or hanging wide", () => {
-    const shape = { id: "p", left: 1100, right: 1300, top: 600 };
+const SHELF = { id: "p", left: 1100, right: 1300, top: 600 };
+
+const firstRest = (visits: Visit[]): Visit =>
+    firstWhen(
+        visits.filter((v) => v.at > 0),
+        (s) => s.phase === "idle" || s.phase === "show"
+    );
+
+test("half the time Diny rests happy, thinking, drawing or talking, and it shrugs when no shape was in reach", () => {
     const restOf = (w: World, r: number) =>
-        firstWhen(
-            run(onFloor(800), 0, 4000, w, fixed(r)).filter((v) => v.at > 0),
-            (s) => s.phase === "idle"
-        ).s;
-    const shut = restOf(world([shape]), 0.5);
-    assert.equal(shut.anchor.kind, "element");
-    assert.equal(shut.frame, "idle");
-    const gaping = restOf(world([shape]), 0.2);
-    assert.equal(gaping.anchor.kind, "element");
-    assert.equal(gaping.frame, "gape");
-    const onTheFloor = restOf(world(), 0.2);
-    assert.equal(onTheFloor.anchor.kind, "floor");
-    assert.equal(onTheFloor.frame, "gape");
+        firstRest(run(onFloor(800), 0, 4000, w, fixed(r))).s;
+    assert.equal(restOf(world([SHELF]), 0.5).frame, "idle");
+    assert.equal(restOf(world([SHELF]), 0.1).frame, "happy");
+    assert.equal(restOf(world([SHELF]), 0.2).frame, "thinking");
+    assert.equal(restOf(world([SHELF]), 0.3).frame, "draw");
+    const talking = restOf(world([SHELF]), 0.4);
+    assert.equal(talking.anchor.kind, "element");
+    assert.equal(talking.routine, "talk");
+    const lost = restOf(world(), 0.2);
+    assert.equal(lost.anchor.kind, "floor");
+    assert.equal(lost.frame, "shrug");
+});
+
+test("a talking Diny opens and closes its mouth, then starts a new rest", () => {
+    const visits = run(onFloor(800), 0, 6000, world([SHELF]), fixed(0.4));
+    const start = firstRest(visits);
+    const talk = visits.filter(
+        (v) => v.at >= start.at && v.at < start.at + routineMs("talk")
+    );
+    assert.ok(talk.every((v) => v.s.phase === "show"));
+    assert.deepEqual([...new Set(talk.map((v) => v.s.frame))].sort(), [
+        "idle",
+        "talk",
+    ]);
+    const next = visits.find((v) => v.at === start.at + routineMs("talk"))!;
+    assert.equal(next.s.phaseStart, next.at);
+});
+
+test("quick clicks build up: a shout, a cheer, then the sword comes out for a salute", () => {
+    const w = world();
+    const first = clickPet({ ...onFloor(800), until: 99999 }, 1000);
+    assert.equal(first.frame, "shout");
+    const second = clickPet(stepPet(first, 1500, w, fixed(0.5)), 1500);
+    assert.equal(second.phase, "shout");
+    assert.equal(
+        stepPet(second, 1500 + SHOUT_FRAME_MS, w, fixed(0.5)).frame,
+        "cheer"
+    );
+    const third = clickPet(stepPet(second, 2000, w, fixed(0.5)), 2000);
+    assert.equal(third.phase, "show");
+    assert.equal(third.routine, "sword");
+    let t = 0;
+    for (const beat of ROUTINES.sword) {
+        assert.equal(stepPet(third, 2000 + t, w, fixed(0.5)).frame, beat.frame);
+        t += beat.ms;
+    }
+    assert.equal(clickPet(third, 2100), third);
+    const done = stepPet(third, 2000 + routineMs("sword"), w, fixed(0.5));
+    assert.equal(done.phase, "idle");
+    assert.equal(done.frame, "idle");
+});
+
+test("a click after the shout has ended starts a new shout, not a cheer", () => {
+    const w = world();
+    const first = clickPet({ ...onFloor(800), until: 99999 }, 1000);
+    const calm = stepPet(first, 1000 + SHOUT_MS, w, fixed(0.5));
+    assert.equal(clickPet(calm, 1000 + SHOUT_MS + 10).frame, "shout");
+});
+
+test("after 10 hops Diny gloves up for one Muay Thai workout, then hops on", () => {
+    const w = world();
+    const training = stepPet(
+        { ...onFloor(800), hops: WORKOUT_HOPS },
+        10,
+        w,
+        fixed(0.9)
+    );
+    assert.equal(training.phase, "show");
+    assert.equal(training.routine, "workout");
+    let t = 0;
+    for (const beat of ROUTINES.workout) {
+        assert.equal(
+            stepPet(training, 10 + t, w, fixed(0.9)).frame,
+            beat.frame
+        );
+        t += beat.ms;
+    }
+    const after = run(
+        training,
+        10,
+        10 + routineMs("workout") + 6000,
+        w,
+        fixed(0.9)
+    );
+    assert.ok(after.some((v) => v.s.phase === "hop"));
+    assert.ok(
+        after.every(
+            (v) =>
+                v.s.phase !== "show" || v.s.phaseStart === training.phaseStart
+        )
+    );
+});
+
+test("a click stops the workout with a shout", () => {
+    const training = stepPet(
+        { ...onFloor(800), hops: WORKOUT_HOPS },
+        10,
+        world(),
+        fixed(0.9)
+    );
+    assert.equal(clickPet(training, 500).phase, "shout");
 });
 
 test("with the sidebar open Diny walks the floor only beside it, never under it", () => {
@@ -551,7 +649,7 @@ test("when the sidebar opens over a standing Diny, it steps out onto the shape i
     assert.equal(landed.anchor.kind === "element" && landed.anchor.id, "p");
 });
 
-test("a Diny let go falls with its falling face and lands without a hello", () => {
+test("a Diny let go falls with its falling face and lands wagging its tail, without a hello", () => {
     const w = world();
     const held = pickUpPet(onFloor(800), 0, { x: 800, y: 950 });
     const dropped = dropPet(carryPet(held, { x: 600, y: 400 }, w), 100, w);
@@ -560,5 +658,5 @@ test("a Diny let go falls with its falling face and lands without a hello", () =
         run(dropped, 100, 3000, w),
         (s) => s.phase === "idle"
     ).s;
-    assert.equal(landed.frame, "idle");
+    assert.equal(landed.frame, "wag");
 });

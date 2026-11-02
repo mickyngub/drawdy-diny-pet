@@ -5,22 +5,45 @@ export type Pt = { x: number; y: number };
 export type Anchor =
     { kind: "floor" } | { kind: "element"; id: string; offset: number };
 
-export type Phase = "idle" | "hop" | "shout" | "fall" | "sleep" | "held";
+export type Phase =
+    "idle" | "hop" | "shout" | "fall" | "sleep" | "held" | "show";
 
 export type Frame =
     | "idle"
-    | "gape"
     | "wave"
     | "jump"
     | "fall"
     | "shout"
+    | "cheer"
+    | "happy"
+    | "thinking"
+    | "draw"
+    | "talk"
+    | "shrug"
+    | "wag"
     | "tired"
     | "sleep"
-    | "held";
+    | "held"
+    | "sword"
+    | "battle-cry"
+    | "slash"
+    | "salute"
+    | "wai-kru"
+    | "guard"
+    | "jab"
+    | "cross"
+    | "kick"
+    | "teep"
+    | "victory";
+
+export type Routine = "talk" | "sword" | "workout";
+
+export type Beat = { frame: Frame; ms: number };
 
 export type Hop = { from: Pt; to: Pt; peakY: number; land: Anchor };
 
-export type Stop = { land: Anchor; x: number };
+// `lost` marks a goal picked after finding no shape in reach.
+export type Stop = { land: Anchor; x: number; lost?: boolean };
 
 export type PetState = {
     phase: Phase;
@@ -42,6 +65,14 @@ export type PetState = {
     grab?: Pt;
     // Set while Diny drops into view, so its first stop is a hello.
     greet?: boolean;
+    // Set while Diny falls from your hand, so it wags when it lands.
+    carried?: boolean;
+    lost?: boolean;
+    routine?: Routine;
+    // Quick clicks in a row: the second cheers, the third brings out the sword.
+    clicks?: number;
+    // Set once Diny has done its workout, until a nap rests it.
+    trained?: boolean;
 };
 
 export type Platform = {
@@ -63,7 +94,7 @@ export type World = {
     zoom: number;
 };
 
-export const PET_W = 78;
+export const PET_W = 96;
 export const PET_H = 85;
 export const IDLE_MIN_MS = 1500;
 export const IDLE_MAX_MS = 4000;
@@ -91,7 +122,50 @@ export const SPOT_PX = 8;
 export const TIRED_HOPS = 20;
 export const SLEEP_MIN_MS = 20000;
 export const SLEEP_MAX_MS = 40000;
-export const GAPE_CHANCE = 0.5;
+export const MOOD_CHANCE = 0.5;
+export const MOODS: Frame[] = ["happy", "thinking", "draw", "talk"];
+export const WORKOUT_HOPS = 10;
+export const CHEER_CLICKS = 2;
+export const SWORD_CLICKS = 3;
+
+// The mascot bible keeps the sword for big moments and the gloves for energy
+// streaks, every strike thrown out to the side, never at you.
+export const ROUTINES: Record<Routine, Beat[]> = {
+    talk: [
+        { frame: "talk", ms: 180 },
+        { frame: "idle", ms: 110 },
+        { frame: "talk", ms: 220 },
+        { frame: "idle", ms: 130 },
+        { frame: "talk", ms: 160 },
+        { frame: "idle", ms: 120 },
+        { frame: "talk", ms: 240 },
+        { frame: "idle", ms: 160 },
+        { frame: "talk", ms: 180 },
+    ],
+    sword: [
+        { frame: "sword", ms: 350 },
+        { frame: "battle-cry", ms: 900 },
+        { frame: "slash", ms: 450 },
+        { frame: "sword", ms: 300 },
+        { frame: "salute", ms: 1100 },
+    ],
+    workout: [
+        { frame: "wai-kru", ms: 1600 },
+        { frame: "guard", ms: 500 },
+        { frame: "jab", ms: 250 },
+        { frame: "guard", ms: 250 },
+        { frame: "cross", ms: 300 },
+        { frame: "guard", ms: 250 },
+        { frame: "kick", ms: 450 },
+        { frame: "guard", ms: 250 },
+        { frame: "teep", ms: 400 },
+        { frame: "guard", ms: 300 },
+        { frame: "victory", ms: 1300 },
+    ],
+};
+
+export const routineMs = (r: Routine): number =>
+    ROUTINES[r].reduce((sum, b) => sum + b.ms, 0);
 
 const HALF_W = PET_W / 2;
 const FLOOR: Anchor = { kind: "floor" };
@@ -210,8 +284,37 @@ const idleFor = (rand: () => number): number =>
 const restingFrame = (s: PetState, rand: () => number): Frame => {
     if (s.hops >= TIRED_HOPS) return "tired";
     if (s.greet) return "wave";
-    return rand() < GAPE_CHANCE ? "gape" : "idle";
+    if (s.carried) return "wag";
+    const r = rand();
+    if (r >= MOOD_CHANCE) return "idle";
+    if (s.lost) return "shrug";
+    return MOODS[Math.floor((r / MOOD_CHANCE) * MOODS.length)];
 };
+
+const perform = (s: PetState, now: number, routine: Routine): PetState => ({
+    ...s,
+    phase: "show",
+    phaseStart: now,
+    until: now + routineMs(routine),
+    frame: ROUTINES[routine][0].frame,
+    routine,
+    sx: 1,
+    sy: 1,
+    hop: undefined,
+    path: [],
+    shoutQueued: false,
+});
+
+const beatAt = (beats: Beat[], t: number): Frame => {
+    let end = 0;
+    for (const b of beats) {
+        end += b.ms;
+        if (t < end) return b.frame;
+    }
+    return beats[beats.length - 1].frame;
+};
+
+const rested = (s: PetState): PetState => ({ ...s, hops: 0, trained: false });
 
 const settle = (
     s: PetState,
@@ -219,22 +322,29 @@ const settle = (
     rand: () => number,
     at: Pt,
     anchor: Anchor
-): PetState => ({
-    ...s,
-    phase: "idle",
-    x: at.x,
-    y: at.y,
-    anchor,
-    phaseStart: now,
-    until: now + idleFor(rand),
-    frame: restingFrame(s, rand),
-    sx: 1,
-    sy: 1,
-    hop: undefined,
-    path: [],
-    shoutQueued: false,
-    greet: false,
-});
+): PetState => {
+    const rest: PetState = {
+        ...s,
+        phase: "idle",
+        x: at.x,
+        y: at.y,
+        anchor,
+        phaseStart: now,
+        until: now + idleFor(rand),
+        frame: restingFrame(s, rand),
+        sx: 1,
+        sy: 1,
+        hop: undefined,
+        path: [],
+        shoutQueued: false,
+        greet: false,
+        carried: false,
+        lost: false,
+        routine: undefined,
+        clicks: 0,
+    };
+    return rest.frame === "talk" ? perform(rest, now, "talk") : rest;
+};
 
 const nap = (s: PetState, now: number, rand: () => number): PetState => ({
     ...s,
@@ -246,17 +356,21 @@ const nap = (s: PetState, now: number, rand: () => number): PetState => ({
     sy: 1,
 });
 
-const shout = (s: PetState, now: number): PetState => ({
+const shout = (s: PetState, now: number, clicks = 1): PetState => ({
     ...s,
     phase: "shout",
     phaseStart: now,
     until: now + SHOUT_MS,
-    frame: "shout",
+    frame: clicks >= CHEER_CLICKS ? "cheer" : "shout",
     sx: POP_SCALE,
     sy: POP_SCALE,
     hop: undefined,
     path: [],
     shoutQueued: false,
+    carried: false,
+    lost: false,
+    routine: undefined,
+    clicks,
 });
 
 const dropFrom = (s: PetState, now: number, at: Pt): PetState => ({
@@ -289,7 +403,8 @@ const fall = (
 });
 
 const pickGoal = (s: PetState, w: World, rand: () => number): Stop => {
-    if (rand() < HOP_CHANCE) {
+    const looked = rand() < HOP_CHANCE;
+    if (looked) {
         const current = s.anchor.kind === "element" ? s.anchor.id : null;
         let best: { p: Platform; spans: Span[]; d: number } | null = null;
         for (const p of w.platforms) {
@@ -309,6 +424,7 @@ const pickGoal = (s: PetState, w: World, rand: () => number): Stop => {
     return {
         land: FLOOR,
         x: floorX(s.x + (rand() * 2 - 1) * FLOOR_REACH_PX, w),
+        lost: looked,
     };
 };
 
@@ -465,17 +581,29 @@ const stepGrounded = (
     const here = { ...s, x: at.x, y: at.y };
     if (s.phase === "sleep") {
         if (now < s.until) return here;
-        return settle({ ...here, hops: 0 }, now, rand, at, s.anchor);
+        return settle(rested(here), now, rand, at, s.anchor);
     }
     if (s.phase === "shout") {
         if (now >= s.until) return settle(here, now, rand, at, s.anchor);
         const t = now - s.phaseStart;
         const pop = t < POP_MS ? POP_SCALE : 1;
+        const cheering = (s.clicks ?? 1) >= CHEER_CLICKS;
         return {
             ...here,
-            frame: Math.floor(t / SHOUT_FRAME_MS) % 2 === 0 ? "shout" : "idle",
+            frame: cheering
+                ? "cheer"
+                : Math.floor(t / SHOUT_FRAME_MS) % 2 === 0
+                  ? "shout"
+                  : "idle",
             sx: pop,
             sy: pop,
+        };
+    }
+    if (s.phase === "show") {
+        if (now >= s.until) return settle(here, now, rand, at, s.anchor);
+        return {
+            ...here,
+            frame: beatAt(ROUTINES[s.routine!], now - s.phaseStart),
         };
     }
     if (now < s.until) return here;
@@ -483,8 +611,12 @@ const stepGrounded = (
         return settle(here, now, rand, at, s.anchor);
     }
     if (s.hops >= TIRED_HOPS) return nap(here, now, rand);
-    const path = planPath(here, pickGoal(here, w, rand), w);
-    return takeOff({ ...here, path }, now, w, rand);
+    if (s.hops >= WORKOUT_HOPS && !s.trained) {
+        return perform({ ...here, trained: true }, now, "workout");
+    }
+    const goal = pickGoal(here, w, rand);
+    const path = planPath(here, goal, w);
+    return takeOff({ ...here, path, lost: goal.lost }, now, w, rand);
 };
 
 export function stepPet(
@@ -506,18 +638,27 @@ export function stepPet(
     }
 }
 
+/** Each click while Diny still shouts builds the streak: a shout, a cheer, then the sword. */
 export function clickPet(s: PetState, now: number): PetState {
     if (s.phase === "held") return s;
+    if (s.phase === "show" && s.routine === "sword") return s;
     const airborne =
         s.phase === "hop" || (s.phase === "fall" && !Number.isFinite(s.until));
     if (airborne) return { ...s, shoutQueued: true };
-    return shout(s.phase === "sleep" ? { ...s, hops: 0 } : s, now);
+    if (s.phase === "shout") {
+        const clicks = (s.clicks ?? 1) + 1;
+        if (clicks >= SWORD_CLICKS) {
+            return perform({ ...s, clicks: 0 }, now, "sword");
+        }
+        return shout(s, now, clicks);
+    }
+    return shout(s.phase === "sleep" ? rested(s) : s, now);
 }
 
 /** Lifts Diny from wherever it is; grabbing a sleeping Diny wakes it. */
 export function pickUpPet(s: PetState, now: number, pointer: Pt): PetState {
     return {
-        ...s,
+        ...(s.phase === "sleep" ? rested(s) : s),
         phase: "held",
         phaseStart: now,
         until: Infinity,
@@ -527,7 +668,9 @@ export function pickUpPet(s: PetState, now: number, pointer: Pt): PetState {
         hop: undefined,
         path: [],
         shoutQueued: false,
-        hops: s.phase === "sleep" ? 0 : s.hops,
+        lost: false,
+        routine: undefined,
+        clicks: 0,
         grab: { x: s.x - pointer.x, y: s.y - pointer.y },
     };
 }
@@ -548,6 +691,7 @@ export function dropPet(s: PetState, now: number, w: World): PetState {
     return {
         ...dropFrom(s, now, { x: floorX(s.x, w), y: s.y }),
         grab: undefined,
+        carried: true,
     };
 }
 
@@ -581,9 +725,8 @@ export function recallPet(
     w: World,
     rand: () => number
 ): PetState {
-    if (s.phase !== "idle" && s.phase !== "shout" && s.phase !== "sleep") {
-        return s;
-    }
+    const standing = ["idle", "shout", "sleep", "show"];
+    if (!standing.includes(s.phase)) return s;
     const outside =
         s.x + HALF_W < w.view.x ||
         s.x - HALF_W > viewRight(w) ||
