@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.0.2
+
+- republished build, no changes since 2.0.1
+
 ## 2.0.1
 
 - republished build, no changes since 2.0.0
